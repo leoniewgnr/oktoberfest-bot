@@ -1,0 +1,13 @@
+{
+  "tents": [
+    {
+      "id": "schuetzenfestzelt",
+      "name": "Schützenfestzelt",
+      "url": "https://reservierung.schuetzenfestzelt.com/reservation",
+      "scraper_type": "select_dropdown",
+      "selector": "select.form-select",
+      "check_interval": 180,
+      "enabled": true
+    }
+  ]
+}

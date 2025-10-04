@@ -1,0 +1,14 @@
+[Unit]
+Description=Oktoberfest Tent Reservation Monitor
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/opt/oktoberfest-bot
+ExecStart=/usr/bin/python3 /opt/oktoberfest-bot/src/main.py
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target
