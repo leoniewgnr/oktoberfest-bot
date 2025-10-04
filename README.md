@@ -106,30 +106,6 @@ sudo systemctl start oktoberfest-bot.service
 }
 ```
 
-## Project Structure
-
-```
-oktoberfest-bot/
-├── config/
-│   ├── config.example.json       # Example configuration
-│   ├── config.json                # Your actual config (gitignored)
-│   └── tents.json                 # Tent definitions
-├── src/
-│   ├── main.py                    # Main orchestrator
-│   ├── config_loader.py           # Config management
-│   ├── state_manager.py           # State tracking
-│   ├── scrapers/
-│   │   ├── base_scraper.py        # Scraper interface
-│   │   └── schuetzenfestzelt.py   # Tent-specific scraper
-│   └── notifiers/
-│       ├── base_notifier.py       # Notifier interface
-│       └── telegram.py            # Telegram implementation
-├── logs/                          # Log files
-├── systemd/                       # Systemd service files
-├── requirements.txt
-└── README.md
-```
-
 ## Adding New Tents
 
 1. Add tent configuration to `config/tents.json`
