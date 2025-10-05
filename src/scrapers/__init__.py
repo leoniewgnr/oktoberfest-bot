@@ -1,6 +1,6 @@
 """Scraper implementations"""
 
 from .base_scraper import BaseScraper, ScrapeResult
-from .schuetzenfestzelt import SchuetzenfestzeltScraper
+from .form_select import FormSelectScraper
 
-__all__ = ['BaseScraper', 'ScrapeResult', 'SchuetzenfestzeltScraper']
+__all__ = ['BaseScraper', 'ScrapeResult', 'FormSelectScraper']

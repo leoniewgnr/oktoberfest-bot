@@ -11,7 +11,7 @@ from typing import Dict, List
 from config_loader import ConfigLoader
 from state_manager import StateManager
 from notifiers import TelegramNotifier
-from scrapers import SchuetzenfestzeltScraper
+from scrapers import FormSelectScraper
 
 # Default paths
 BASE_DIR = Path(__file__).parent.parent
@@ -37,10 +37,10 @@ def setup_logging(log_file: str):
 
 def create_scraper(tent_config: Dict):
     """Factory function to create appropriate scraper for tent"""
-    scraper_type = tent_config.get('scraper_type', 'select_dropdown')
+    scraper_type = tent_config.get('scraper_type', 'form_select')
 
-    if scraper_type == 'select_dropdown':
-        return SchuetzenfestzeltScraper(tent_config)
+    if scraper_type == 'form_select':
+        return FormSelectScraper(tent_config)
     else:
         raise ValueError(f"Unknown scraper type: {scraper_type}")
 

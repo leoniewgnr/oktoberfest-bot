@@ -1,4 +1,4 @@
-"""Scraper for Schuetzenfestzelt reservation page"""
+"""Scraper for tent reservation pages using form select dropdowns"""
 
 import asyncio
 import logging
@@ -8,8 +8,8 @@ from .base_scraper import BaseScraper, ScrapeResult
 logger = logging.getLogger(__name__)
 
 
-class SchuetzenfestzeltScraper(BaseScraper):
-    """Scraper for Schuetzenfestzelt using select dropdown detection"""
+class FormSelectScraper(BaseScraper):
+    """Scraper for tents using select dropdown detection"""
 
     async def check_availability(self) -> ScrapeResult:
         """Check for available dates on the reservation page"""

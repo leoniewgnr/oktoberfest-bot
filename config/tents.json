@@ -4,7 +4,7 @@
       "id": "schuetzenfestzelt",
       "name": "Schützenfestzelt",
       "url": "https://reservierung.schuetzenfestzelt.com/reservation",
-      "scraper_type": "select_dropdown",
+      "scraper_type": "form_select",
       "selector": "select.form-select",
       "check_interval": 180,
       "enabled": true
@@ -13,7 +13,7 @@
       "id": "hacker-festzelt",
       "name": "Hacker-Festzelt",
       "url": "https://reservierung.hacker-festzelt.de/reservation/",
-      "scraper_type": "select_dropdown",
+      "scraper_type": "form_select",
       "selector": "select.form-select",
       "check_interval": 180,
       "enabled": true
