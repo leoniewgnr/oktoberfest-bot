@@ -17,6 +17,15 @@
       "selector": "select.form-select",
       "check_interval": 180,
       "enabled": true
+    },
+    {
+      "id": "schottenhamel",
+      "name": "Schottenhamel",
+      "url": "https://reservierung.festhalle-schottenhamel.de/reservation/",
+      "scraper_type": "form_select",
+      "selector": "select.form-select",
+      "check_interval": 180,
+      "enabled": true
     }
   ]
 }
