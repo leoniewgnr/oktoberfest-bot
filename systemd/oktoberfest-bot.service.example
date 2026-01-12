@@ -6,7 +6,7 @@ After=network.target
 Type=simple
 User=root
 WorkingDirectory=/opt/oktoberfest-bot
-ExecStart=/usr/bin/python3 /opt/oktoberfest-bot/src/main.py
+ExecStart=/usr/bin/python3 -m oktoberfest_bot.main
 Restart=always
 RestartSec=10
 

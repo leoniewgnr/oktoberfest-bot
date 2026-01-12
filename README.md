@@ -24,8 +24,8 @@ Getting a table at popular Oktoberfest tents is extremely competitive. Reservati
 git clone https://github.com/YOUR_USERNAME/oktoberfest-bot.git
 cd oktoberfest-bot
 
-# Install dependencies
-pip install -r requirements.txt
+# Install the package
+pip install -e .
 
 # Install Playwright browsers
 playwright install chromium
@@ -66,7 +66,10 @@ Edit `config/tents.json` to add or modify tents you want to monitor. Each tent n
 
 ```bash
 # Run directly
-python3 src/main.py
+oktoberfest-bot
+
+# Or run as module
+python3 -m oktoberfest_bot.main
 
 # Or run in background with systemd
 sudo cp systemd/oktoberfest-bot.service.example /etc/systemd/system/oktoberfest-bot.service
@@ -109,8 +112,8 @@ sudo systemctl start oktoberfest-bot.service
 ## Adding New Tents
 
 1. Add tent configuration to `config/tents.json`
-2. If the tent uses a different page structure, create a new scraper in `src/scrapers/`
-3. Update the `create_scraper()` factory in `src/main.py`
+2. If the tent uses a different page structure, create a new scraper in `oktoberfest_bot/scrapers/`
+3. Update the `create_scraper()` factory in `oktoberfest_bot/main.py`
 
 ## Monitoring
 
