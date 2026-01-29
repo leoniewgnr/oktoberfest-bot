@@ -61,10 +61,10 @@ async def check_tent(tent_config: Dict, state_manager: StateManager,
         if result.success:
             # Get previous state
             was_available = state_manager.is_dates_available(tent_id)
-            prev_error_count = state_manager.get_consecutive_errors(tent_id)
+            was_in_error_state = state_manager.is_error_notified(tent_id)
 
             # Check if we recovered from errors
-            if prev_error_count >= 5:
+            if was_in_error_state:
                 notifier.send_recovery_notification(tent_name)
 
             # Update state
@@ -102,19 +102,22 @@ async def check_tent(tent_config: Dict, state_manager: StateManager,
             logger.error(f"{tent_name}: Check failed - {error_msg}")
 
             state_manager.mark_check_error(tent_id)
-            error_count = state_manager.get_consecutive_errors(tent_id)
 
-            # Send error notification after 5 consecutive errors, then every 10
-            if error_count == 5 or (error_count > 5 and error_count % 10 == 0):
+            # Send error notification only once when entering error state
+            if not state_manager.is_error_notified(tent_id):
+                error_count = state_manager.get_consecutive_errors(tent_id)
                 notifier.send_error_notification(tent_name, error_msg, error_count)
+                state_manager.mark_error_notified(tent_id)
 
     except Exception as e:
         logger.error(f"{tent_name}: Unexpected error - {e}")
         state_manager.mark_check_error(tent_id)
-        error_count = state_manager.get_consecutive_errors(tent_id)
 
-        if error_count == 5 or (error_count > 5 and error_count % 10 == 0):
+        # Send error notification only once when entering error state
+        if not state_manager.is_error_notified(tent_id):
+            error_count = state_manager.get_consecutive_errors(tent_id)
             notifier.send_error_notification(tent_name, str(e), error_count)
+            state_manager.mark_error_notified(tent_id)
 
 
 async def monitor_loop(config_loader: ConfigLoader, state_manager: StateManager,

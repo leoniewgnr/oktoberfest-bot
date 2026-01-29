@@ -39,7 +39,8 @@ class StateManager:
                 "last_check": None,
                 "dates_available": False,
                 "available_dates": [],
-                "consecutive_errors": 0
+                "consecutive_errors": 0,
+                "error_notified": False
             }
         return self.state[tent_id]
 
@@ -56,7 +57,8 @@ class StateManager:
             last_check=datetime.now().isoformat(),
             dates_available=dates_available,
             available_dates=available_dates or [],
-            consecutive_errors=0
+            consecutive_errors=0,
+            error_notified=False
         )
 
     def mark_check_error(self, tent_id: str):
@@ -78,3 +80,11 @@ class StateManager:
     def get_available_dates(self, tent_id: str) -> List[Dict]:
         """Get list of available dates for a tent"""
         return self.get_tent_state(tent_id).get('available_dates', [])
+
+    def is_error_notified(self, tent_id: str) -> bool:
+        """Check if error notification has been sent for current error state"""
+        return self.get_tent_state(tent_id).get('error_notified', False)
+
+    def mark_error_notified(self, tent_id: str):
+        """Mark that error notification has been sent"""
+        self.update_tent_state(tent_id, error_notified=True)
