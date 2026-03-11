@@ -35,6 +35,15 @@
       "selector": "select#data.createBookingStepOneForm.date",
       "check_interval": 180,
       "enabled": true
+    },
+    {
+      "id": "ochsenbraterei",
+      "name": "Ochsenbraterei",
+      "url": "https://reservierung.ochsenbraterei.de/reservierungen",
+      "scraper_type": "form_select",
+      "selector": "select.fi-select-input",
+      "check_interval": 180,
+      "enabled": true
     }
   ]
 }
