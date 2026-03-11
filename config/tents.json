@@ -26,6 +26,15 @@
       "selector": "select.form-select",
       "check_interval": 180,
       "enabled": true
+    },
+    {
+      "id": "paulaner-festzelt",
+      "name": "Paulaner Festzelt",
+      "url": "https://reservierung.paulanerfestzelt.de/reservierung",
+      "scraper_type": "form_select",
+      "selector": "select#data.createBookingStepOneForm.date",
+      "check_interval": 180,
+      "enabled": true
     }
   ]
 }
