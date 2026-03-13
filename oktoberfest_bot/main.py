@@ -8,10 +8,10 @@ from pathlib import Path
 from datetime import datetime
 from typing import Dict, List
 
-from config_loader import ConfigLoader
-from state_manager import StateManager
-from notifiers import TelegramNotifier
-from scrapers import FormSelectScraper
+from .config_loader import ConfigLoader
+from .state_manager import StateManager
+from .notifiers import TelegramNotifier
+from .scrapers import FormSelectScraper
 
 # Default paths
 BASE_DIR = Path(__file__).parent.parent
