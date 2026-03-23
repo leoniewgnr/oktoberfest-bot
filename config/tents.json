@@ -15,6 +15,7 @@
       "url": "https://reservierung.derhimmelderbayern.de/reservierung",
       "scraper_type": "form_select",
       "selector": "select[id=\"data.createBookingStepOneForm.date\"]",
+      "time_selector": "select#data.createBookingStepOneForm.booking_list_id",
       "check_interval": 180,
       "enabled": true
     },

@@ -1,30 +1,40 @@
 """Base scraper interface for checking tent reservations"""
 
 from abc import ABC, abstractmethod
-from typing import Dict, List, Any
+from typing import Dict, List, Any, Optional
 from datetime import datetime
 
 
 class ScrapeResult:
     """Result from a scraping operation"""
 
-    def __init__(self, success: bool, dates_available: bool = False,
-                 available_dates: List[Dict] = None, error: str = None):
+    def __init__(
+        self,
+        success: bool,
+        dates_available: bool = False,
+        available_dates: Optional[List[Dict]] = None,
+        available_times: Optional[Dict[str, Dict[str, Any]]] = None,
+        error: str = None,
+    ):
         self.success = success
         self.dates_available = dates_available
         self.available_dates = available_dates or []
+        # available_times is an optional mapping keyed by date "value".
+        # Each entry: {"date_text": str, "times": [{"value": str, "text": str}, ...]}
+        self.available_times = available_times or {}
         self.error = error
         self.timestamp = datetime.now().isoformat()
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary"""
-        result = {
+        result: Dict[str, Any] = {
             'success': self.success,
-            'timestamp': self.timestamp
+            'timestamp': self.timestamp,
         }
         if self.success:
             result['dates_available'] = self.dates_available
             result['available_dates'] = self.available_dates
+            result['available_times'] = self.available_times
         else:
             result['error'] = self.error
         return result
@@ -49,5 +59,5 @@ class BaseScraper(ABC):
         return {
             'id': self.tent_id,
             'name': self.tent_name,
-            'url': self.url
+            'url': self.url,
         }

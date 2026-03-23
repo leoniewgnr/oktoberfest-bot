@@ -4,7 +4,7 @@ import json
 import os
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any
 
 
 class StateManager:
@@ -26,7 +26,6 @@ class StateManager:
 
     def _save(self):
         """Save current state to file"""
-        # Ensure directory exists
         Path(self.state_file).parent.mkdir(parents=True, exist_ok=True)
 
         with open(self.state_file, 'w') as f:
@@ -39,9 +38,14 @@ class StateManager:
                 "last_check": None,
                 "dates_available": False,
                 "available_dates": [],
+                # Optional: mapping keyed by date value -> {date_text, times:[{value,text}, ...]}
+                "available_times": {},
                 "consecutive_errors": 0,
-                "error_notified": False
+                "error_notified": False,
             }
+        # Backwards compat for old state files
+        if 'available_times' not in self.state[tent_id]:
+            self.state[tent_id]['available_times'] = {}
         return self.state[tent_id]
 
     def update_tent_state(self, tent_id: str, **kwargs):
@@ -50,15 +54,22 @@ class StateManager:
         tent_state.update(kwargs)
         self._save()
 
-    def mark_check_success(self, tent_id: str, dates_available: bool, available_dates: List[Dict] = None):
+    def mark_check_success(
+        self,
+        tent_id: str,
+        dates_available: bool,
+        available_dates: List[Dict] = None,
+        available_times: Dict[str, Dict[str, Any]] = None,
+    ):
         """Mark a successful check for a tent"""
         self.update_tent_state(
             tent_id,
             last_check=datetime.now().isoformat(),
             dates_available=dates_available,
             available_dates=available_dates or [],
+            available_times=available_times or {},
             consecutive_errors=0,
-            error_notified=False
+            error_notified=False,
         )
 
     def mark_check_error(self, tent_id: str):
@@ -66,7 +77,7 @@ class StateManager:
         tent_state = self.get_tent_state(tent_id)
         self.update_tent_state(
             tent_id,
-            consecutive_errors=tent_state.get('consecutive_errors', 0) + 1
+            consecutive_errors=tent_state.get('consecutive_errors', 0) + 1,
         )
 
     def get_consecutive_errors(self, tent_id: str) -> int:
@@ -80,6 +91,10 @@ class StateManager:
     def get_available_dates(self, tent_id: str) -> List[Dict]:
         """Get list of available dates for a tent"""
         return self.get_tent_state(tent_id).get('available_dates', [])
+
+    def get_available_times(self, tent_id: str) -> Dict[str, Dict[str, Any]]:
+        """Get mapping of available times per date (if configured)."""
+        return self.get_tent_state(tent_id).get('available_times', {})
 
     def is_error_notified(self, tent_id: str) -> bool:
         """Check if error notification has been sent for current error state"""

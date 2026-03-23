@@ -1,16 +1,27 @@
 """Base notifier interface for sending notifications"""
 
 from abc import ABC, abstractmethod
-from typing import Dict, List
+from typing import Any, Dict, List
 
 
 class BaseNotifier(ABC):
     """Abstract base class for notification services"""
 
     @abstractmethod
-    def send_notification(self, message: str):
-        """Send a notification message"""
-        pass
+    def send_notification(self, message: str) -> Any:
+        """Send a notification message."""
+        raise NotImplementedError
+
+    def _maybe_react(self, message_id: Any, emoji: str):
+        """Best-effort reaction helper for notifiers that support it."""
+        if message_id is None:
+            return
+        react_fn = getattr(self, 'react_to_message', None)
+        if callable(react_fn):
+            try:
+                react_fn(message_id, emoji)
+            except Exception:
+                pass
 
     def send_startup_notification(self, tent_names: List[str], check_interval: int):
         """Send notification when monitoring starts"""
@@ -25,10 +36,7 @@ class BaseNotifier(ABC):
 
     def send_dates_available(self, tent_name: str, tent_url: str, available_dates: List[Dict]):
         """Send notification when dates become available"""
-        dates_text = "\n".join([
-            f"• {date['text']}"
-            for date in available_dates
-        ])
+        dates_text = "\n".join([f"• {date['text']}" for date in available_dates])
 
         message = (
             f"🍺🎉 <b>{tent_name.upper()} - DATES AVAILABLE!</b> 🎉🍺\n\n"
@@ -36,7 +44,22 @@ class BaseNotifier(ABC):
             f"{dates_text}\n\n"
             f"🔗 Book now: {tent_url}"
         )
-        self.send_notification(message)
+        message_id = self.send_notification(message)
+        self._maybe_react(message_id, "🍺")
+
+    def send_times_available(self, tent_name: str, tent_url: str, date_text: str, new_times: List[Dict]):
+        """Send notification when new time slots become available for an already-available date."""
+        times_text = "\n".join([f"• {t['text']}" for t in new_times])
+
+        message = (
+            f"⏰🎉 <b>{tent_name.upper()} - NEW TIME SLOTS!</b> 🎉⏰\n\n"
+            f"Date: <b>{date_text}</b>\n"
+            f"New time option(s) found ({len(new_times)}):\n"
+            f"{times_text}\n\n"
+            f"🔗 Book now: {tent_url}"
+        )
+        message_id = self.send_notification(message)
+        self._maybe_react(message_id, "⏰")
 
     def send_dates_unavailable(self, tent_name: str):
         """Send notification when dates become unavailable"""
@@ -50,6 +73,7 @@ class BaseNotifier(ABC):
     def send_error_notification(self, tent_name: str, error_msg: str, error_count: int):
         """Send notification about monitoring errors"""
         import html
+
         escaped_error = html.escape(error_msg)
 
         message = (
