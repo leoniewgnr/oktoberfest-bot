@@ -14,9 +14,8 @@ logger = logging.getLogger(__name__)
 class FormSelectScraper(BaseScraper):
     """Scraper for tents using select dropdown detection"""
 
-    async def _extract_select(self, page: Any, selector: str) -> List[Dict[str, str]]:
-        """Extract available options from a <select>."""
-        select_element = await page.query_selector(selector)
+    async def _extract_select_handle(self, select_element: Any) -> List[Dict[str, str]]:
+        """Extract available options from a <select> ElementHandle."""
         if not select_element:
             return []
 
@@ -33,6 +32,44 @@ class FormSelectScraper(BaseScraper):
                 available_options.append({'value': value, 'text': (text or '').strip()})
 
         return available_options
+
+    async def _extract_select(self, page: Any, selector: str) -> List[Dict[str, str]]:
+        """Extract available options from a <select> via CSS selector."""
+        select_element = await page.query_selector(selector)
+        return await self._extract_select_handle(select_element)
+
+    async def _guess_time_select(self, page: Any, date_selector: str) -> Any:
+        """Heuristic: pick a secondary <select> that likely represents a time slot dropdown.
+
+        Returns an ElementHandle or None.
+        """
+        try:
+            date_el = await page.query_selector(date_selector)
+            selects = await page.query_selector_all('select')
+            candidates = [s for s in selects if s != date_el]
+
+            # 1) First pass: look for selects with recognizable id/name.
+            preferred: List[Any] = []
+            other: List[Any] = []
+            for cand in candidates:
+                _id = (await cand.get_attribute('id')) or ''
+                _name = (await cand.get_attribute('name')) or ''
+                blob = f"{_id} {_name}".lower()
+                if any(token in blob for token in ['time', 'uhr', 'booking_list', 'slot', 'termin', 'session']):
+                    preferred.append(cand)
+                else:
+                    other.append(cand)
+
+            for group in (preferred, other):
+                for cand in group:
+                    opts = await self._extract_select_handle(cand)
+                    if len(opts) >= 1:
+                        return cand
+
+        except Exception:
+            return None
+
+        return None
 
     async def check_availability(self) -> ScrapeResult:
         """Check for available dates (and optionally times) on the reservation page."""
@@ -66,18 +103,28 @@ class FormSelectScraper(BaseScraper):
                 available_dates = await self._extract_select(page, date_selector)
                 logger.info(f"Found {len(available_dates)} available date options")
 
-                # Times (optional)
+                # Times (optional; auto-detect if not configured)
                 available_times: Dict[str, Dict[str, Any]] = {}
-                if time_selector and available_dates:
+                if available_dates:
                     date_select = await page.query_selector(date_selector)
+
+                    guessed_time_select = None
+                    if not time_selector:
+                        # Try to guess a secondary time dropdown.
+                        guessed_time_select = await self._guess_time_select(page, date_selector)
 
                     for date in available_dates:
                         try:
                             await date_select.select_option(value=date['value'])
-                            # Wait a bit for dependent selects to update.
                             await asyncio.sleep(2)
 
-                            times = await self._extract_select(page, time_selector)
+                            if time_selector:
+                                times = await self._extract_select(page, time_selector)
+                            elif guessed_time_select:
+                                times = await self._extract_select_handle(guessed_time_select)
+                            else:
+                                times = []
+
                             if times:
                                 available_times[date['value']] = {
                                     'date_text': date['text'],
