@@ -47,6 +47,19 @@ class BaseNotifier(ABC):
         message_id = self.send_notification(message)
         self._maybe_react(message_id, "🍺")
 
+    def send_new_dates_added(self, tent_name: str, tent_url: str, new_dates: List[Dict]):
+        """Send notification when additional dates are added while dates were already available."""
+        dates_text = "\n".join([f"• {date['text']}" for date in new_dates])
+
+        message = (
+            f"🆕📅 <b>{tent_name.upper()} - NEW DATES ADDED!</b> 📅🆕\n\n"
+            f"Newly added date(s) ({len(new_dates)}):\n"
+            f"{dates_text}\n\n"
+            f"🔗 Book now: {tent_url}"
+        )
+        message_id = self.send_notification(message)
+        self._maybe_react(message_id, "📅")
+
     def send_times_available(self, tent_name: str, tent_url: str, date_text: str, new_times: List[Dict]):
         """Send notification when new time slots become available for an already-available date."""
         times_text = "\n".join([f"• {t['text']}" for t in new_times])

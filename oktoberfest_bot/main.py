@@ -65,9 +65,14 @@ async def check_tent(
             was_in_error_state = state_manager.is_error_notified(tent_id)
 
             prev_times = state_manager.get_available_times(tent_id)
+            prev_dates = state_manager.get_available_dates(tent_id)
+            prev_date_values = _values(prev_dates)
 
             if was_in_error_state:
                 notifier.send_recovery_notification(tent_name)
+
+            # Detect newly added date options (even if dates were already available)
+            new_dates = [d for d in result.available_dates if d.get('value') not in prev_date_values]
 
             # Detect newly available times (best-effort; only if scraper provides them)
             newly_available_times = []
@@ -105,6 +110,12 @@ async def check_tent(
                 # No change in overall date availability
                 if result.dates_available:
                     logger.info(f"{tent_name}: Dates still available ({len(result.available_dates)} options)")
+
+                    # If additional dates appeared, announce them.
+                    if new_dates:
+                        logger.info(f"{tent_name}: New dates added: {len(new_dates)}")
+                        notifier.send_new_dates_added(tent_name, tent_config['url'], new_dates)
+
                     # New time slots can appear even if dates stay available.
                     for date_text, new_times in newly_available_times:
                         logger.info(f"{tent_name}: New time slots for {date_text}: {len(new_times)}")
