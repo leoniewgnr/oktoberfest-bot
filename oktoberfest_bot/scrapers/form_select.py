@@ -109,14 +109,36 @@ class FormSelectScraper(BaseScraper):
                     date_select = await page.query_selector(date_selector)
 
                     guessed_time_select = None
-                    if not time_selector:
-                        # Try to guess a secondary time dropdown.
-                        guessed_time_select = await self._guess_time_select(page, date_selector)
+
+                    def _looks_like_date(text: str) -> bool:
+                        # e.g. "Freitag, 25.09.2026" or "25.09.2026"
+                        import re
+                        return bool(re.search(r"\b\d{2}\.\d{2}\.\d{4}\b", text))
+
+                    def _looks_like_time(text: str) -> bool:
+                        t = (text or '').strip().lower()
+                        if not t:
+                            return False
+                        if _looks_like_date(t):
+                            return False
+                        # Common patterns/labels
+                        if ':' in t or 'uhr' in t:
+                            return True
+                        if any(word in t for word in ['mittag', 'vormittag', 'nachmittag', 'abend', 'nachts']):
+                            return True
+                        # Short labels like "Lunch"/"Dinner" etc.
+                        if len(t) <= 12:
+                            return True
+                        return False
 
                     for date in available_dates:
                         try:
                             await date_select.select_option(value=date['value'])
                             await asyncio.sleep(2)
+
+                            # For auto-detect, re-guess after selecting a date (some pages create the time dropdown dynamically)
+                            if not time_selector:
+                                guessed_time_select = await self._guess_time_select(page, date_selector)
 
                             if time_selector:
                                 times = await self._extract_select(page, time_selector)
@@ -124,6 +146,9 @@ class FormSelectScraper(BaseScraper):
                                 times = await self._extract_select_handle(guessed_time_select)
                             else:
                                 times = []
+
+                            # Filter out bogus "times" that are actually dates or other long labels
+                            times = [t for t in times if _looks_like_time(t.get('text', ''))]
 
                             if times:
                                 available_times[date['value']] = {
