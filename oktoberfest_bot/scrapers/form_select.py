@@ -76,13 +76,37 @@ class FormSelectScraper(BaseScraper):
         logger.info(f"Checking availability for {self.tent_name}...")
 
         async with async_playwright() as p:
-            browser = await p.chromium.launch(
-                headless=True,
-                args=['--no-sandbox', '--disable-setuid-sandbox'],
-            )
+            # These reservation portals are often behind bot protection.
+            # Prefer a real Chrome channel if available (less flaky than bundled Chromium).
+            try:
+                browser = await p.chromium.launch(
+                    headless=True,
+                    channel='chrome',
+                    args=[
+                        '--no-sandbox',
+                        '--disable-setuid-sandbox',
+                        '--disable-blink-features=AutomationControlled',
+                    ],
+                )
+            except Exception:
+                browser = await p.chromium.launch(
+                    headless=True,
+                    args=[
+                        '--no-sandbox',
+                        '--disable-setuid-sandbox',
+                        '--disable-blink-features=AutomationControlled',
+                    ],
+                )
 
             try:
-                page = await browser.new_page()
+                page = await browser.new_page(
+                    user_agent=(
+                        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
+                        '(KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36'
+                    ),
+                    viewport={'width': 1365, 'height': 768},
+                    locale='de-DE',
+                )
                 page.set_default_timeout(30000)
 
                 logger.info(f"Loading page: {self.url}")
@@ -90,13 +114,18 @@ class FormSelectScraper(BaseScraper):
                 # so 'networkidle' can be flaky. 'domcontentloaded' + explicit selector wait is
                 # more robust.
                 await page.goto(self.url, wait_until='domcontentloaded')
+                # Best-effort: allow any JS challenges to settle.
+                try:
+                    await page.wait_for_load_state('networkidle', timeout=15000)
+                except Exception:
+                    pass
 
                 date_selector = self.config.get('selector', 'select.form-select')
                 time_selector = self.config.get('time_selector')
 
                 # Give SPA widgets time to hydrate and then wait for the actual date selector.
                 try:
-                    await page.wait_for_selector(date_selector, timeout=45000)
+                    await page.wait_for_selector(date_selector, timeout=60000)
                 except Exception:
                     logger.warning(f"Date select element not found (timeout): {date_selector}")
                     return ScrapeResult(success=False, error='Select element not found')
