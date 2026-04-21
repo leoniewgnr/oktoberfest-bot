@@ -2,7 +2,9 @@
 
 import asyncio
 import logging
-from typing import Any, Dict, List
+import os
+import subprocess
+from typing import Any, Dict, List, Optional, Tuple
 
 from playwright.async_api import async_playwright
 
@@ -13,6 +15,25 @@ logger = logging.getLogger(__name__)
 
 class FormSelectScraper(BaseScraper):
     """Scraper for tents using select dropdown detection"""
+
+    def _start_xvfb(self) -> Tuple[Optional[subprocess.Popen], Optional[str]]:
+        """Start a temporary Xvfb display for headed Chromium (helps with some bot protection).
+
+        Returns (proc, display). If Xvfb cannot be started, returns (None, None).
+        """
+        if os.environ.get('DISPLAY'):
+            return None, None
+
+        display = ':99'
+        try:
+            proc = subprocess.Popen(
+                ['Xvfb', display, '-screen', '0', '1365x768x24', '-nolisten', 'tcp'],
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.DEVNULL,
+            )
+            return proc, display
+        except Exception:
+            return None, None
 
     async def _extract_select_handle(self, select_element: Any) -> List[Dict[str, str]]:
         """Extract available options from a <select> ElementHandle."""
@@ -76,29 +97,18 @@ class FormSelectScraper(BaseScraper):
         logger.info(f"Checking availability for {self.tent_name}...")
 
         async with async_playwright() as p:
-            # These reservation portals are often behind bot protection.
-            # Prefer a real Chrome channel if available (less flaky than bundled Chromium).
-            try:
-                browser = await p.chromium.launch(
-                    headless=True,
-                    channel='chrome',
-                    args=[
-                        '--no-sandbox',
-                        '--disable-setuid-sandbox',
-                        '--disable-blink-features=AutomationControlled',
-                    ],
-                )
-            except Exception:
-                browser = await p.chromium.launch(
-                    headless=True,
-                    args=[
-                        '--no-sandbox',
-                        '--disable-setuid-sandbox',
-                        '--disable-blink-features=AutomationControlled',
-                    ],
-                )
+            async def _launch(headless: bool):
+                args = [
+                    '--no-sandbox',
+                    '--disable-setuid-sandbox',
+                    '--disable-blink-features=AutomationControlled',
+                ]
+                try:
+                    return await p.chromium.launch(headless=headless, channel='chrome', args=args)
+                except Exception:
+                    return await p.chromium.launch(headless=headless, args=args)
 
-            try:
+            async def _run_once(browser) -> ScrapeResult:
                 page = await browser.new_page(
                     user_agent=(
                         'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 '
@@ -110,11 +120,7 @@ class FormSelectScraper(BaseScraper):
                 page.set_default_timeout(30000)
 
                 logger.info(f"Loading page: {self.url}")
-                # Some of these reservation portals are SPAs that keep long-running requests open,
-                # so 'networkidle' can be flaky. 'domcontentloaded' + explicit selector wait is
-                # more robust.
                 await page.goto(self.url, wait_until='domcontentloaded')
-                # Best-effort: allow any JS challenges to settle.
                 try:
                     await page.wait_for_load_state('networkidle', timeout=15000)
                 except Exception:
@@ -123,11 +129,15 @@ class FormSelectScraper(BaseScraper):
                 date_selector = self.config.get('selector', 'select.form-select')
                 time_selector = self.config.get('time_selector')
 
-                # Give SPA widgets time to hydrate and then wait for the actual date selector.
                 try:
                     await page.wait_for_selector(date_selector, timeout=60000)
                 except Exception:
-                    logger.warning(f"Date select element not found (timeout): {date_selector}")
+                    # Capture a tiny hint for debugging (often a bot-check page).
+                    try:
+                        body_head = (await page.inner_text('body'))[:200].replace('\n', ' ')
+                        logger.warning(f"Date select not found; body starts with: {body_head!r}")
+                    except Exception:
+                        pass
                     return ScrapeResult(success=False, error='Select element not found')
 
                 # Dates
@@ -196,8 +206,44 @@ class FormSelectScraper(BaseScraper):
                     available_times=available_times,
                 )
 
+            browser = None
+            xvfb_proc = None
+            old_display = os.environ.get('DISPLAY')
+            try:
+                # First try: headless (cheap)
+                browser = await _launch(headless=True)
+                result = await _run_once(browser)
+                if result.success:
+                    return result
+
+                # Fallback: headed Chromium inside Xvfb (often passes bot-protection)
+                await browser.close()
+                browser = None
+
+                xvfb_proc, display = self._start_xvfb()
+                if display:
+                    os.environ['DISPLAY'] = display
+
+                browser = await _launch(headless=False)
+                result2 = await _run_once(browser)
+                return result2
+
             except Exception as e:
                 logger.error(f"Error checking page: {e}")
                 return ScrapeResult(success=False, error=str(e))
             finally:
-                await browser.close()
+                try:
+                    if browser:
+                        await browser.close()
+                except Exception:
+                    pass
+                if xvfb_proc:
+                    try:
+                        xvfb_proc.terminate()
+                    except Exception:
+                        pass
+                # Restore DISPLAY
+                if old_display is not None:
+                    os.environ['DISPLAY'] = old_display
+                elif 'DISPLAY' in os.environ:
+                    del os.environ['DISPLAY']
