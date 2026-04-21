@@ -86,17 +86,19 @@ class FormSelectScraper(BaseScraper):
                 page.set_default_timeout(30000)
 
                 logger.info(f"Loading page: {self.url}")
-                await page.goto(self.url, wait_until='networkidle')
-
-                # Give SPA widgets time to hydrate.
-                await asyncio.sleep(5)
+                # Some of these reservation portals are SPAs that keep long-running requests open,
+                # so 'networkidle' can be flaky. 'domcontentloaded' + explicit selector wait is
+                # more robust.
+                await page.goto(self.url, wait_until='domcontentloaded')
 
                 date_selector = self.config.get('selector', 'select.form-select')
                 time_selector = self.config.get('time_selector')
 
-                # Ensure date select exists
-                if not await page.query_selector(date_selector):
-                    logger.warning(f"Date select element not found: {date_selector}")
+                # Give SPA widgets time to hydrate and then wait for the actual date selector.
+                try:
+                    await page.wait_for_selector(date_selector, timeout=45000)
+                except Exception:
+                    logger.warning(f"Date select element not found (timeout): {date_selector}")
                     return ScrapeResult(success=False, error='Select element not found')
 
                 # Dates
