@@ -90,12 +90,20 @@ class BaseNotifier(ABC):
         self.send_notification(message)
 
     def send_dates_available(self, tent_name: str, tent_url: str, available_dates: List[Dict]):
-        """Send notification when dates become available"""
-        dates_text = "\n".join([f"• {date['text']}" for date in available_dates])
+        """Send notification when dates become available.
+
+        Policy: Mon–Thu, suppress options that clearly indicate a midday/lunch slot.
+        If unsure, we send.
+        """
+        filtered = [d for d in available_dates if not self._should_suppress_midday(d.get('text', ''))]
+        if not filtered:
+            return
+
+        dates_text = "\n".join([f"• {date['text']}" for date in filtered])
 
         message = (
             f"🍺🎉 <b>{tent_name.upper()} - DATES AVAILABLE!</b> 🎉🍺\n\n"
-            f"Found {len(available_dates)} available date(s):\n"
+            f"Found {len(filtered)} available option(s):\n"
             f"{dates_text}\n\n"
             f"🔗 Book now: {tent_url}"
         )
@@ -103,12 +111,20 @@ class BaseNotifier(ABC):
         self._maybe_react(message_id, "🍺")
 
     def send_new_dates_added(self, tent_name: str, tent_url: str, new_dates: List[Dict]):
-        """Send notification when additional dates are added while dates were already available."""
-        dates_text = "\n".join([f"• {date['text']}" for date in new_dates])
+        """Send notification when additional dates are added while dates were already available.
+
+        Policy: Mon–Thu, suppress options that clearly indicate a midday/lunch slot.
+        If unsure, we send.
+        """
+        filtered = [d for d in new_dates if not self._should_suppress_midday(d.get('text', ''))]
+        if not filtered:
+            return
+
+        dates_text = "\n".join([f"• {date['text']}" for date in filtered])
 
         message = (
             f"🆕📅 <b>{tent_name.upper()} - NEW DATES ADDED!</b> 📅🆕\n\n"
-            f"Newly added date(s) ({len(new_dates)}):\n"
+            f"Newly added option(s) ({len(filtered)}):\n"
             f"{dates_text}\n\n"
             f"🔗 Book now: {tent_url}"
         )
