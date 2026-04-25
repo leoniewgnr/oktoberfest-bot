@@ -54,6 +54,15 @@
             "selector": "select[id=\"data.createBookingStepOneForm.date\"]",
             "check_interval": 180,
             "enabled": true
+        },
+        {
+            "id": "kufflers-weinzelt",
+            "name": "Kufflers Weinzelt",
+            "url": "https://reservierung.weinzelt.com/reservation/",
+            "scraper_type": "form_select",
+            "selector": "select.form-select",
+            "check_interval": 180,
+            "enabled": true
         }
     ]
 }
