@@ -1,50 +1,59 @@
 {
-  "tents": [
-    {
-      "id": "schuetzenfestzelt",
-      "name": "Schützenfestzelt",
-      "url": "https://reservierung.schuetzenfestzelt.com/reservation",
-      "scraper_type": "form_select",
-      "selector": "select.form-select",
-      "check_interval": 180,
-      "enabled": true
-    },
-    {
-      "id": "hacker-festzelt",
-      "name": "Hacker-Festzelt",
-      "url": "https://reservierung.derhimmelderbayern.de/reservierung",
-      "scraper_type": "form_select",
-      "selector": "select[id=\"data.createBookingStepOneForm.date\"]",
-      "time_selector": "select#data.createBookingStepOneForm.booking_list_id",
-      "check_interval": 180,
-      "enabled": true
-    },
-    {
-      "id": "schottenhamel",
-      "name": "Schottenhamel",
-      "url": "https://reservierung.festhalle-schottenhamel.de/reservation/",
-      "scraper_type": "form_select",
-      "selector": "select.form-select",
-      "check_interval": 180,
-      "enabled": true
-    },
-    {
-      "id": "paulaner-festzelt",
-      "name": "Paulaner Festzelt",
-      "url": "https://reservierung.paulanerfestzelt.de/reservierung",
-      "scraper_type": "form_select",
-      "selector": "select[id=\"data.createBookingStepOneForm.date\"]",
-      "check_interval": 180,
-      "enabled": true
-    },
-    {
-      "id": "ochsenbraterei",
-      "name": "Ochsenbraterei",
-      "url": "https://reservierung.ochsenbraterei.de/reservierungen",
-      "scraper_type": "form_select",
-      "selector": "select[id=\"data.createBookingStepOneForm.date\"]",
-      "check_interval": 180,
-      "enabled": true
-    }
-  ]
+    "tents": [
+        {
+            "id": "schuetzenfestzelt",
+            "name": "Sch\u00fctzenfestzelt",
+            "url": "https://reservierung.schuetzenfestzelt.com/reservation",
+            "scraper_type": "form_select",
+            "selector": "select.form-select",
+            "check_interval": 180,
+            "enabled": true
+        },
+        {
+            "id": "hacker-festzelt",
+            "name": "Hacker-Festzelt",
+            "url": "https://reservierung.derhimmelderbayern.de/reservierung",
+            "scraper_type": "form_select",
+            "selector": "select[id=\"data.createBookingStepOneForm.date\"]",
+            "time_selector": "select#data.createBookingStepOneForm.booking_list_id",
+            "check_interval": 180,
+            "enabled": true
+        },
+        {
+            "id": "schottenhamel",
+            "name": "Schottenhamel",
+            "url": "https://reservierung.festhalle-schottenhamel.de/reservation/",
+            "scraper_type": "form_select",
+            "selector": "select.form-select",
+            "check_interval": 180,
+            "enabled": true
+        },
+        {
+            "id": "paulaner-festzelt",
+            "name": "Paulaner Festzelt",
+            "url": "https://reservierung.paulanerfestzelt.de/reservierung",
+            "scraper_type": "form_select",
+            "selector": "select[id=\"data.createBookingStepOneForm.date\"]",
+            "check_interval": 180,
+            "enabled": true
+        },
+        {
+            "id": "ochsenbraterei",
+            "name": "Ochsenbraterei",
+            "url": "https://reservierung.ochsenbraterei.de/reservierungen",
+            "scraper_type": "form_select",
+            "selector": "select[id=\"data.createBookingStepOneForm.date\"]",
+            "check_interval": 180,
+            "enabled": true
+        },
+        {
+            "id": "zur-bratwurst",
+            "name": "Hochreiters zur Bratwurst",
+            "url": "https://reservierung.zur-bratwurst.de/reservierung",
+            "scraper_type": "form_select",
+            "selector": "select[id=\"data.createBookingStepOneForm.date\"]",
+            "check_interval": 180,
+            "enabled": true
+        }
+    ]
 }
