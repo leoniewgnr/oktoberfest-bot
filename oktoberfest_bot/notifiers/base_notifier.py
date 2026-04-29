@@ -53,14 +53,11 @@ class BaseNotifier(ABC):
         return None
 
     def _should_suppress_midday(self, time_text: str) -> bool:
-        """Mon–Thu: suppress midday slot notifications; if unsure, do not suppress."""
-        now = self._now_local()
-        weekday = now.weekday()  # Mon=0 .. Sun=6
-        if weekday > 3:
-            return False
+        """Return True to suppress a slot from notifications.
 
-        is_midday = self._is_midday_slot(time_text)
-        return is_midday is True
+        Currently disabled: always notify, even for 'Mittag' on Mon–Thu.
+        """
+        return False
 
     @abstractmethod
     def send_notification(self, message: str) -> Any:
