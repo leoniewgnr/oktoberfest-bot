@@ -99,7 +99,10 @@ class BaseNotifier(ABC):
         if not filtered:
             return
 
-        dates_text = "\n".join([f"• {date['text']}" for date in filtered])
+        import html
+
+        dates_text = "\n".join([f"• {html.escape(str(date.get('text', '')))}" for date in filtered])
+
 
         message = (
             f"🍺🎉 <b>{tent_name.upper()} - DATES AVAILABLE!</b> 🎉🍺\n\n"
@@ -120,7 +123,9 @@ class BaseNotifier(ABC):
         if not filtered:
             return
 
-        dates_text = "\n".join([f"• {date['text']}" for date in filtered])
+        import html
+
+        dates_text = "\n".join([f"• {html.escape(str(date.get('text', '')))}" for date in filtered])
 
         message = (
             f"🆕📅 <b>{tent_name.upper()} - NEW DATES ADDED!</b> 📅🆕\n\n"
@@ -141,11 +146,14 @@ class BaseNotifier(ABC):
         if not filtered:
             return
 
-        times_text = "\n".join([f"• {t['text']}" for t in filtered])
+        import html
+
+        safe_date_text = html.escape(str(date_text or ""))
+        times_text = "\n".join([f"• {html.escape(str(t.get('text', '')))}" for t in filtered])
 
         message = (
             f"⏰🎉 <b>{tent_name.upper()} - NEW TIME SLOTS!</b> 🎉⏰\n\n"
-            f"Date: <b>{date_text}</b>\n"
+            f"Date: <b>{safe_date_text}</b>\n"
             f"New time option(s) found ({len(filtered)}):\n"
             f"{times_text}\n\n"
             f"🔗 Book now: {tent_url}"
