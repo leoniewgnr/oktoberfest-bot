@@ -197,7 +197,7 @@ class FormSelectScraper(BaseScraper):
                                     'times': times,
                                 }
                         except Exception as e:
-                            logger.info(f"Failed to extract times for date {date.get('text')}: {e}")
+                            logger.info(f"{self.tent_name}: Failed to extract times for date {date.get('text')}: {e}")
 
                 return ScrapeResult(
                     success=True,

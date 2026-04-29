@@ -109,7 +109,8 @@ async def check_tent(
             else:
                 # No change in overall date availability
                 if result.dates_available:
-                    logger.info(f"{tent_name}: Dates still available ({len(result.available_dates)} options)")
+                    dates_str = ", ".join(d.get("text", "") for d in result.available_dates)
+                    logger.info(f"{tent_name}: Dates still available ({len(result.available_dates)}): {dates_str}")
 
                     # If additional dates appeared, announce them.
                     if new_dates:
