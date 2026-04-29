@@ -53,11 +53,13 @@ class BaseNotifier(ABC):
         return None
 
     def _should_suppress_midday(self, time_text: str) -> bool:
-        """Return True to suppress a slot from notifications.
+        """Return True if this slot should be suppressed from notifications.
 
-        Currently disabled: always notify, even for 'Mittag' on Mon–Thu.
+        Policy (Leonie): suppress midday ("Mittag" / lunch / ~10:00–15:59) slots on *all* weekdays.
+        If uncertain, do NOT suppress.
         """
-        return False
+        is_midday = self._is_midday_slot(time_text)
+        return is_midday is True
 
     @abstractmethod
     def send_notification(self, message: str) -> Any:
@@ -92,7 +94,7 @@ class BaseNotifier(ABC):
         Policy: Mon–Thu, suppress options that clearly indicate a midday/lunch slot.
         If unsure, we send.
         """
-        filtered = [d for d in available_dates if not self._should_suppress_midday(d.get('text', ''))]
+        filtered = list(available_dates)
         if not filtered:
             return
 
@@ -116,7 +118,7 @@ class BaseNotifier(ABC):
         Policy: Mon–Thu, suppress options that clearly indicate a midday/lunch slot.
         If unsure, we send.
         """
-        filtered = [d for d in new_dates if not self._should_suppress_midday(d.get('text', ''))]
+        filtered = list(new_dates)
         if not filtered:
             return
 
