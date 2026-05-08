@@ -22,6 +22,13 @@ class BaseNotifier(ABC):
         except Exception:
             return datetime.utcnow()
 
+    def _detected_at_line(self) -> str:
+        """Human-friendly detection timestamp line (Europe/Berlin when possible)."""
+        now = self._now_local()
+        tz = (now.tzname() or '').strip()
+        tz_suffix = f" {tz}" if tz else ""
+        return f"🕒 Detected: <code>{now.strftime('%Y-%m-%d %H:%M')}{tz_suffix}</code>\n\n"
+
     def _is_midday_slot(self, time_text: str) -> Optional[bool]:
         """Return True if the time_text clearly indicates a midday/lunch slot.
 
@@ -105,6 +112,7 @@ class BaseNotifier(ABC):
 
         message = (
             f"🍺🎉 <b>{tent_name.upper()} - DATES AVAILABLE!</b> 🎉🍺\n\n"
+            f"{self._detected_at_line()}"
             f"Found {len(filtered)} available option(s):\n"
             f"{dates_text}\n\n"
             f"🔗 Book now: {tent_url}"
@@ -128,6 +136,7 @@ class BaseNotifier(ABC):
 
         message = (
             f"🆕📅 <b>{tent_name.upper()} - NEW DATES ADDED!</b> 📅🆕\n\n"
+            f"{self._detected_at_line()}"
             f"Newly added option(s) ({len(filtered)}):\n"
             f"{dates_text}\n\n"
             f"🔗 Book now: {tent_url}"
@@ -152,6 +161,7 @@ class BaseNotifier(ABC):
 
         message = (
             f"⏰🎉 <b>{tent_name.upper()} - NEW TIME SLOTS!</b> 🎉⏰\n\n"
+            f"{self._detected_at_line()}"
             f"Date: <b>{safe_date_text}</b>\n"
             f"New time option(s) found ({len(filtered)}):\n"
             f"{times_text}\n\n"
