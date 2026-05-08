@@ -34,6 +34,7 @@
       "url": "https://reservierung.paulanerfestzelt.de/reservierung",
       "scraper_type": "form_select",
       "selector": "select[id=\"data.createBookingStepOneForm.date\"]",
+      "time_selector": "select#data.createBookingStepOneForm.booking_list_id",
       "check_interval": 120,
       "enabled": true
     },
@@ -43,6 +44,7 @@
       "url": "https://reservierung.ochsenbraterei.de/reservierungen",
       "scraper_type": "form_select",
       "selector": "select[id=\"data.createBookingStepOneForm.date\"]",
+      "time_selector": "select#data.createBookingStepOneForm.booking_list_id",
       "check_interval": 120,
       "enabled": true
     },
@@ -52,6 +54,7 @@
       "url": "https://reservierung.zur-bratwurst.de/reservierung",
       "scraper_type": "form_select",
       "selector": "select[id=\"data.createBookingStepOneForm.date\"]",
+      "time_selector": "select#data.createBookingStepOneForm.booking_list_id",
       "check_interval": 120,
       "enabled": true
     },

@@ -46,6 +46,40 @@ def _values(items: List[Dict]) -> set:
     return {i.get('value') for i in items if i.get('value') is not None}
 
 
+def _combine_date_times(
+    dates: List[Dict],
+    times_by_date: Dict[str, Dict],
+) -> List[Dict]:
+    """Return a flat list of combined slot options.
+
+    If we have times for a date, we emit "<date> – <time>" items.
+    If we don't, we fall back to the date text only.
+
+    (We *do not* apply suppression here; suppression is handled in time-slot-only alerts.)
+    """
+    combined: List[Dict] = []
+    for d in (dates or []):
+        date_val = d.get('value')
+        date_text = (d.get('text') or '').strip()
+        info = (times_by_date or {}).get(date_val) if date_val is not None else None
+        ts = (info or {}).get('times') or []
+
+        if ts:
+            for t in ts:
+                t_val = t.get('value')
+                t_text = (t.get('text') or '').strip()
+                combined.append(
+                    {
+                        'value': f"{date_val}|{t_val}" if t_val is not None else str(date_val),
+                        'text': f"{date_text} – {t_text}" if t_text else date_text,
+                    }
+                )
+        else:
+            combined.append({'value': date_val, 'text': date_text})
+
+    return combined
+
+
 async def check_tent(
     tent_config: Dict,
     state_manager: StateManager,
@@ -96,7 +130,10 @@ async def check_tent(
             # State change: dates
             if result.dates_available and not was_available:
                 logger.info(f"{tent_name}: NEW DATES AVAILABLE!")
-                notifier.send_dates_available(tent_name, tent_config['url'], result.available_dates)
+
+                # Prefer combined date+time slot text when we can extract times.
+                combined_slots = _combine_date_times(result.available_dates, result.available_times)
+                notifier.send_dates_available(tent_name, tent_config['url'], combined_slots)
 
                 # If the page also exposes time slots, announce them too.
                 for date_text, new_times in newly_available_times:
@@ -122,7 +159,9 @@ async def check_tent(
                             )
                         except Exception:
                             pass
-                        notifier.send_new_dates_added(tent_name, tent_config['url'], new_dates)
+
+                        combined_new = _combine_date_times(new_dates, result.available_times)
+                        notifier.send_new_dates_added(tent_name, tent_config['url'], combined_new)
 
                     # New time slots can appear even if dates stay available.
                     for date_text, new_times in newly_available_times:
