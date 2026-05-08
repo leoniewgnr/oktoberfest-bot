@@ -114,12 +114,26 @@ async def check_tent(
 
                     # If additional dates appeared, announce them.
                     if new_dates:
-                        logger.info(f"{tent_name}: New dates added: {len(new_dates)}")
+                        logger.info(f"{tent_name}: New options added: {len(new_dates)}")
+                        try:
+                            logger.info(
+                                f"{tent_name}: New option texts: "
+                                + ", ".join([str(d.get('text', '')).strip() for d in new_dates])
+                            )
+                        except Exception:
+                            pass
                         notifier.send_new_dates_added(tent_name, tent_config['url'], new_dates)
 
                     # New time slots can appear even if dates stay available.
                     for date_text, new_times in newly_available_times:
                         logger.info(f"{tent_name}: New time slots for {date_text}: {len(new_times)}")
+                        try:
+                            logger.info(
+                                f"{tent_name}: New time texts for {date_text}: "
+                                + ", ".join([str(t.get('text', '')).strip() for t in new_times])
+                            )
+                        except Exception:
+                            pass
                         notifier.send_times_available(tent_name, tent_config['url'], date_text, new_times)
                 else:
                     logger.info(f"{tent_name}: No dates available yet")

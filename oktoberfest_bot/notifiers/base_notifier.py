@@ -22,13 +22,6 @@ class BaseNotifier(ABC):
         except Exception:
             return datetime.utcnow()
 
-    def _detected_at_line(self) -> str:
-        """Human-friendly detection timestamp line (Europe/Berlin when possible)."""
-        now = self._now_local()
-        tz = (now.tzname() or '').strip()
-        tz_suffix = f" {tz}" if tz else ""
-        return f"🕒 Detected: <code>{now.strftime('%Y-%m-%d %H:%M')}{tz_suffix}</code>\n\n"
-
     def _is_midday_slot(self, time_text: str) -> Optional[bool]:
         """Return True if the time_text clearly indicates a midday/lunch slot.
 
@@ -46,6 +39,7 @@ class BaseNotifier(ABC):
 
         # Try parsing leading HH:MM
         import re
+
         m = re.search(r"\b(\d{1,2}):(\d{2})\b", t)
         if not m:
             return None
@@ -98,8 +92,8 @@ class BaseNotifier(ABC):
     def send_dates_available(self, tent_name: str, tent_url: str, available_dates: List[Dict]):
         """Send notification when dates become available.
 
-        Policy: Mon–Thu, suppress options that clearly indicate a midday/lunch slot.
-        If unsure, we send.
+        Note: This should communicate the *reservation slot* (as shown on the website),
+        i.e., date+time if the site exposes it in the option text.
         """
         filtered = list(available_dates)
         if not filtered:
@@ -109,10 +103,8 @@ class BaseNotifier(ABC):
 
         dates_text = "\n".join([f"• {html.escape(str(date.get('text', '')))}" for date in filtered])
 
-
         message = (
-            f"🍺🎉 <b>{tent_name.upper()} - DATES AVAILABLE!</b> 🎉🍺\n\n"
-            f"{self._detected_at_line()}"
+            f"🍺🎉 <b>{tent_name.upper()} - TABLES AVAILABLE!</b> 🎉🍺\n\n"
             f"Found {len(filtered)} available option(s):\n"
             f"{dates_text}\n\n"
             f"🔗 Book now: {tent_url}"
@@ -121,11 +113,7 @@ class BaseNotifier(ABC):
         self._maybe_react(message_id, "🍺")
 
     def send_new_dates_added(self, tent_name: str, tent_url: str, new_dates: List[Dict]):
-        """Send notification when additional dates are added while dates were already available.
-
-        Policy: Mon–Thu, suppress options that clearly indicate a midday/lunch slot.
-        If unsure, we send.
-        """
+        """Send notification when additional options are added while availability already existed."""
         filtered = list(new_dates)
         if not filtered:
             return
@@ -135,8 +123,7 @@ class BaseNotifier(ABC):
         dates_text = "\n".join([f"• {html.escape(str(date.get('text', '')))}" for date in filtered])
 
         message = (
-            f"🆕📅 <b>{tent_name.upper()} - NEW DATES ADDED!</b> 📅🆕\n\n"
-            f"{self._detected_at_line()}"
+            f"🆕📅 <b>{tent_name.upper()} - NEW OPTIONS ADDED!</b> 📅🆕\n\n"
             f"Newly added option(s) ({len(filtered)}):\n"
             f"{dates_text}\n\n"
             f"🔗 Book now: {tent_url}"
@@ -145,11 +132,7 @@ class BaseNotifier(ABC):
         self._maybe_react(message_id, "📅")
 
     def send_times_available(self, tent_name: str, tent_url: str, date_text: str, new_times: List[Dict]):
-        """Send notification when new time slots become available for an already-available date.
-
-        Policy: Mon–Thu, suppress clear midday/lunch-only slot notifications. If we're unsure,
-        we send the notification ("better to notify than hide").
-        """
+        """Send notification when new time slots become available for an already-available date."""
         filtered = [t for t in new_times if not self._should_suppress_midday(t.get('text', ''))]
         if not filtered:
             return
@@ -161,8 +144,7 @@ class BaseNotifier(ABC):
 
         message = (
             f"⏰🎉 <b>{tent_name.upper()} - NEW TIME SLOTS!</b> 🎉⏰\n\n"
-            f"{self._detected_at_line()}"
-            f"Date: <b>{safe_date_text}</b>\n"
+            f"Day: <b>{safe_date_text}</b>\n"
             f"New time option(s) found ({len(filtered)}):\n"
             f"{times_text}\n\n"
             f"🔗 Book now: {tent_url}"
@@ -173,8 +155,8 @@ class BaseNotifier(ABC):
     def send_dates_unavailable(self, tent_name: str):
         """Send notification when dates become unavailable"""
         message = (
-            f"❌ <b>{tent_name} - Dates No Longer Available</b>\n\n"
-            "The previously available dates have been booked.\n"
+            f"❌ <b>{tent_name} - No Longer Available</b>\n\n"
+            "The previously available options have been booked.\n"
             "Will continue monitoring..."
         )
         self.send_notification(message)
