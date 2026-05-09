@@ -175,7 +175,31 @@ class FormSelectScraper(BaseScraper):
                     for date in available_dates:
                         try:
                             await date_select.select_option(value=date['value'])
+                            # Ensure JS listeners fire on frameworks that don't react to Playwright's select_option alone
+                            try:
+                                await page.evaluate(
+                                    "(sel, val) => { const el = document.querySelector(sel); if (!el) return; el.value = val; el.dispatchEvent(new Event(\"input\", { bubbles: true })); el.dispatchEvent(new Event(\"change\", { bubbles: true })); }",
+                                    date_selector,
+                                    date["value"],
+                                )
+                            except Exception:
+                                pass
                             await asyncio.sleep(2)
+
+
+                            # Some sites populate the time dropdown asynchronously after selecting a date.
+                            # Wait until at least one non-placeholder option is present so we reliably
+                            # include time labels (e.g., Mittag/Abend) in notifications.
+                            if time_selector:
+                                try:
+                                    await page.wait_for_selector(time_selector, timeout=10000)
+                                    await page.wait_for_function(
+                                        "(sel) => { const el = document.querySelector(sel); if (!el) return false; return Array.from(el.options).some(o => o.value && !o.disabled); }",
+                                        time_selector,
+                                        timeout=10000,
+                                    )
+                                except Exception:
+                                    pass
 
                             # For auto-detect, re-guess after selecting a date (some pages create the time dropdown dynamically)
                             if not time_selector:
@@ -198,6 +222,16 @@ class FormSelectScraper(BaseScraper):
                                 }
                         except Exception as e:
                             logger.info(f"{self.tent_name}: Failed to extract times for date {date.get('text')}: {e}")
+
+
+                # If a time selector is configured for this tent, we consider it a scrape failure
+                # when we cannot extract any time options for any date. This prevents sending
+                # misleading date-only notifications and helps avoid missing Abend opportunities.
+                if time_selector and available_dates and not available_times:
+                    logger.warning(
+                        f"{self.tent_name}: time_selector configured ({time_selector}) but extracted 0 time options"
+                    )
+                    return ScrapeResult(success=False, error='Time options not extracted')
 
                 return ScrapeResult(
                     success=True,
