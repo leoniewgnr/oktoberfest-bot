@@ -80,6 +80,29 @@ def _combine_date_times(
     return combined
 
 
+def _has_time_label(text: str) -> bool:
+    t = (text or "").strip().lower()
+    if not t:
+        return False
+    if "–" in t:
+        return True
+    if any(w in t for w in ["mittag", "abend", "vormittag", "nachmittag", "nachts", "uhr"]):
+        return True
+    import re
+    return bool(re.search(r"\d{1,2}:\d{2}", t))
+
+
+def _missing_time_dates(dates: list, times_by_date: dict) -> list:
+    missing = []
+    for d in (dates or []):
+        dv = d.get("value")
+        info = (times_by_date or {}).get(dv) if dv is not None else None
+        ts = (info or {}).get("times") or []
+        if not ts:
+            missing.append((d.get("text") or str(dv) or "").strip())
+    return missing
+
+
 async def check_tent(
     tent_config: Dict,
     state_manager: StateManager,
@@ -92,7 +115,23 @@ async def check_tent(
 
     try:
         scraper = create_scraper(tent_config)
-        result = await scraper.check_availability()
+
+        async def _run_check_with_retries(max_attempts: int = 3, retry_delay_s: float = 2.5):
+            last = None
+            for attempt in range(1, max_attempts + 1):
+                last = await scraper.check_availability()
+                if last and last.success:
+                    if tent_config.get('time_selector') and last.dates_available and not (last.available_times or {}):
+                        if attempt < max_attempts:
+                            logger.warning(
+                                f"{tent_name}: times missing (attempt {attempt}/{max_attempts}); retrying in {retry_delay_s}s"
+                            )
+                            await asyncio.sleep(retry_delay_s)
+                            continue
+                break
+            return last
+
+        result = await _run_check_with_retries()
 
         if result.success:
             was_available = state_manager.is_dates_available(tent_id)
@@ -107,6 +146,19 @@ async def check_tent(
 
             # Detect newly added date options (even if dates were already available)
             new_dates = [d for d in result.available_dates if d.get('value') not in prev_date_values]
+
+
+            if tent_config.get('time_selector') and new_dates:
+                missing_for_new = _missing_time_dates(new_dates, result.available_times)
+                if missing_for_new:
+                    msg = (
+                        f"⚠️ <b>{tent_name.upper()} - NEW DATE DETECTED, TIME UNKNOWN</b>\n\n"
+                        "A new reservation date appeared, but the bot could not reliably extract the time slot(s) (e.g. Abend) right now. Please check manually ASAP:\n\n"
+                        + "\n".join([f"• {d}" for d in missing_for_new])
+                        + f"\n\n🔗 {tent_config['url']}"
+                    )
+                    notifier.send_notification(msg)
+
 
             # Detect newly available times (best-effort; only if scraper provides them)
             newly_available_times = []
@@ -161,7 +213,10 @@ async def check_tent(
                             pass
 
                         combined_new = _combine_date_times(new_dates, result.available_times)
-                        notifier.send_new_dates_added(tent_name, tent_config['url'], combined_new)
+                        if tent_config.get('time_selector'):
+                            combined_new = [o for o in combined_new if _has_time_label(o.get('text', ''))]
+                        if combined_new:
+                            notifier.send_new_dates_added(tent_name, tent_config['url'], combined_new)
 
                     # New time slots can appear even if dates stay available.
                     for date_text, new_times in newly_available_times:
