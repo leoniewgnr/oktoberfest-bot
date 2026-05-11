@@ -84,33 +84,70 @@ class FormSelectScraper(BaseScraper):
         return await self._extract_select_handle(select_element)
 
     async def _guess_time_select(self, page: Any, date_selector: str) -> Any:
-        """Heuristic: pick a secondary <select> that likely represents a time slot dropdown.
+        """Heuristic: pick a secondary <select> that likely represents a time-slot dropdown.
+
+        Uses the page's JS context to gather metadata about every <select>
+        (label text, id, name, option count, whether it's the date select)
+        in a single round-trip, then walks the corresponding Playwright handle
+        list. Prefers selects whose label/id/name explicitly indicates a
+        time/shift dropdown. Falls back to any non-date select that has
+        at least one real option.
 
         Returns an ElementHandle or None.
         """
         try:
-            date_el = await page.query_selector(date_selector)
-            selects = await page.query_selector_all('select')
-            candidates = [s for s in selects if s != date_el]
+            info = await page.evaluate(
+                """(dateSelector) => {
+                    const dateEl = document.querySelector(dateSelector);
+                    const all = Array.from(document.querySelectorAll('select'));
+                    return all.map((sel) => {
+                        let lab = '';
+                        if (sel.labels && sel.labels.length) lab = sel.labels[0].innerText.trim();
+                        if (!lab) {
+                            const p = sel.closest('[class*=form], [class*=field], div');
+                            const l = p && p.querySelector('label');
+                            if (l) lab = l.innerText.trim();
+                        }
+                        const realOpts = Array.from(sel.options)
+                            .filter(o => o.value && !o.disabled).length;
+                        return {
+                            isDate: sel === dateEl,
+                            label: lab.toLowerCase(),
+                            id: (sel.id || '').toLowerCase(),
+                            name: (sel.name || '').toLowerCase(),
+                            realOpts,
+                            visible: sel.offsetParent !== null,
+                        };
+                    });
+                }""",
+                date_selector,
+            )
+            handles = await page.query_selector_all('select')
+            if not info or len(info) != len(handles):
+                return None
 
-            # 1) First pass: look for selects with recognizable id/name.
-            preferred: List[Any] = []
-            other: List[Any] = []
-            for cand in candidates:
-                _id = (await cand.get_attribute('id')) or ''
-                _name = (await cand.get_attribute('name')) or ''
-                blob = f"{_id} {_name}".lower()
-                if any(token in blob for token in ['time', 'uhr', 'booking_list', 'slot', 'termin', 'session']):
-                    preferred.append(cand)
-                else:
-                    other.append(cand)
+            time_tokens = (
+                'uhrzeit', 'uhr', 'zeit', 'time', 'shift', 'schicht',
+                'slot', 'session', 'termin', 'booking_list',
+            )
 
-            for group in (preferred, other):
-                for cand in group:
-                    opts = await self._extract_select_handle(cand)
-                    if len(opts) >= 1:
-                        return cand
+            def looks_like_time(meta: Dict[str, Any]) -> bool:
+                blob = f"{meta['label']} {meta['id']} {meta['name']}"
+                return any(tok in blob for tok in time_tokens)
 
+            # Pass 1: explicit time-label match with at least one real option.
+            for meta, handle in zip(info, handles):
+                if meta['isDate'] or not meta['visible']:
+                    continue
+                if looks_like_time(meta) and meta['realOpts'] >= 1:
+                    return handle
+
+            # Pass 2: any visible non-date select with real options.
+            for meta, handle in zip(info, handles):
+                if meta['isDate'] or not meta['visible']:
+                    continue
+                if meta['realOpts'] >= 1:
+                    return handle
         except Exception:
             return None
 
@@ -206,25 +243,35 @@ class FormSelectScraper(BaseScraper):
                             return False
                         if _looks_like_date(t):
                             return False
-                        # Common patterns/labels
+                        # Reject pure numbers (e.g. Tischgröße "8", "10") — those are
+                        # never time labels even though they're short.
+                        if t.isdigit():
+                            return False
+                        # Strong positive signals
                         if ':' in t or 'uhr' in t:
                             return True
-                        if any(word in t for word in ['mittag', 'vormittag', 'nachmittag', 'abend', 'nachts']):
+                        if any(word in t for word in [
+                            'mittag', 'vormittag', 'nachmittag', 'abend', 'nachts',
+                            'morgens', 'lunch', 'dinner', 'evening', 'breakfast',
+                        ]):
                             return True
-                        # Short labels like "Lunch"/"Dinner" etc.
-                        if len(t) <= 12:
+                        # Short labels (e.g. "Lunch"/"Dinner") — but only if they
+                        # contain at least one letter (rejects "8", "10", "1.5").
+                        import re
+                        if len(t) <= 12 and re.search(r"[a-zäöüß]", t):
                             return True
                         return False
 
                     for date in available_dates:
                         try:
                             await date_select.select_option(value=date['value'])
-                            # Ensure JS listeners fire on frameworks that don't react to Playwright's select_option alone
+                            # Ensure JS listeners fire on frameworks that don't react to Playwright's
+                            # select_option alone. Playwright's page.evaluate takes a single arg —
+                            # pack our two values into a list and destructure inside JS.
                             try:
                                 await page.evaluate(
-                                    "(sel, val) => { const el = document.querySelector(sel); if (!el) return; el.value = val; el.dispatchEvent(new Event(\"input\", { bubbles: true })); el.dispatchEvent(new Event(\"change\", { bubbles: true })); }",
-                                    date_selector,
-                                    date["value"],
+                                    "([sel, val]) => { const el = document.querySelector(sel); if (!el) return; el.value = val; el.dispatchEvent(new Event('input', { bubbles: true })); el.dispatchEvent(new Event('change', { bubbles: true })); }",
+                                    [date_selector, date["value"]],
                                 )
                             except Exception:
                                 pass
