@@ -4,10 +4,28 @@ from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 
+from ..filters import should_alert
+
 try:
     from zoneinfo import ZoneInfo
 except Exception:  # pragma: no cover
     ZoneInfo = None  # type: ignore
+
+
+def _fmt_iso_local(iso: Optional[str]) -> str:
+    """Render an ISO timestamp in Europe/Berlin. Used only for status reports."""
+    if not iso:
+        return "never"
+    try:
+        dt = datetime.fromisoformat(iso)
+    except ValueError:
+        return iso
+    if ZoneInfo and dt.tzinfo:
+        try:
+            dt = dt.astimezone(ZoneInfo("Europe/Berlin"))
+        except Exception:
+            pass
+    return dt.strftime("%Y-%m-%d %H:%M %Z").strip()
 
 
 class BaseNotifier(ABC):
@@ -22,45 +40,17 @@ class BaseNotifier(ABC):
         except Exception:
             return datetime.utcnow()
 
-    def _is_midday_slot(self, time_text: str) -> Optional[bool]:
-        """Return True if the time_text clearly indicates a midday/lunch slot.
-
-        If uncertain, return None.
-        """
-        t = (time_text or '').strip().lower()
-        if not t:
-            return None
-
-        # Clear labels
-        if 'mittag' in t or 'lunch' in t:
-            return True
-        if 'abend' in t or 'dinner' in t:
-            return False
-
-        # Try parsing leading HH:MM
-        import re
-
-        m = re.search(r"\b(\d{1,2}):(\d{2})\b", t)
-        if not m:
-            return None
-        hour = int(m.group(1))
-
-        # Treat early afternoon as 'midday' for suppression purposes.
-        if 10 <= hour <= 15:
-            return True
-        if hour >= 18:
-            return False
-
-        return None
-
-    def _should_suppress_midday(self, time_text: str) -> bool:
+    def _should_suppress_midday(self, time_text: str, date_text: str = "") -> bool:
         """Return True if this slot should be suppressed from notifications.
 
-        Policy (Leonie): suppress midday ("Mittag" / lunch / ~10:00–15:59) slots on *all* weekdays.
-        If uncertain, do NOT suppress.
+        Policy (Leonie): suppress ONLY Mon–Fri Mittag. Alert on all Abend (any
+        day), Sa/So Mittag, and anything unparseable. Uses the shared filter.
+
+        Backwards-compatible signature: existing callers that pass only the
+        time text still work; for time-slot tents, callers should also pass
+        date_text so the weekday rule applies.
         """
-        is_midday = self._is_midday_slot(time_text)
-        return is_midday is True
+        return not should_alert(date_text or "", time_text or "")
 
     @abstractmethod
     def send_notification(self, message: str) -> Any:
@@ -94,8 +84,10 @@ class BaseNotifier(ABC):
 
         Note: This should communicate the *reservation slot* (as shown on the website),
         i.e., date+time if the site exposes it in the option text.
+        Weekday-Mittag slots are suppressed (only when both can be inferred from the
+        combined option text). Date-only options with no shift indicator pass through.
         """
-        filtered = list(available_dates)
+        filtered = [d for d in available_dates if should_alert(d.get('text', ''))]
         if not filtered:
             return
 
@@ -114,7 +106,7 @@ class BaseNotifier(ABC):
 
     def send_new_dates_added(self, tent_name: str, tent_url: str, new_dates: List[Dict]):
         """Send notification when additional options are added while availability already existed."""
-        filtered = list(new_dates)
+        filtered = [d for d in new_dates if should_alert(d.get('text', ''))]
         if not filtered:
             return
 
@@ -133,7 +125,12 @@ class BaseNotifier(ABC):
 
     def send_times_available(self, tent_name: str, tent_url: str, date_text: str, new_times: List[Dict]):
         """Send notification when new time slots become available for an already-available date."""
-        filtered = [t for t in new_times if not self._should_suppress_midday(t.get('text', ''))]
+        # Weekday-aware filter: pass both date and time so Mon–Fri Mittag is
+        # suppressed but Sa/So Mittag and any Abend are not.
+        filtered = [
+            t for t in new_times
+            if not self._should_suppress_midday(t.get('text', ''), date_text)
+        ]
         if not filtered:
             return
 
@@ -182,4 +179,46 @@ class BaseNotifier(ABC):
             "Successfully reconnected to reservation page.\n"
             "Monitoring continues normally."
         )
+        self.send_notification(message)
+
+    def send_heartbeat(self, tent_reports: List[Dict[str, Any]]):
+        """Periodic 'still alive' digest covering every monitored tent.
+
+        Each report dict: {name, last_check_iso, available_count, consecutive_errors}.
+        Goal: if any tent silently stops being polled, it's visible in the digest.
+        """
+        import html
+
+        lines: List[str] = []
+        any_problem = False
+        for r in tent_reports:
+            name = html.escape(str(r.get("name", "?")))
+            last = _fmt_iso_local(r.get("last_check_iso"))
+            count = int(r.get("available_count", 0))
+            errs = int(r.get("consecutive_errors", 0))
+
+            if errs >= 5:
+                icon = "⚠️"
+                detail = f"   ⚠ {errs} consecutive error(s)"
+                any_problem = True
+            elif r.get("last_check_iso") is None:
+                icon = "❓"
+                detail = "   (no successful check yet)"
+                any_problem = True
+            else:
+                icon = "✅"
+                detail = f"   Tracking {count} date(s)"
+
+            lines.append(
+                f"{icon} <b>{name}</b>\n"
+                f"   Last check: {html.escape(last)}\n"
+                f"{detail}"
+            )
+
+        header = (
+            "📊 <b>Daily Status</b>"
+            if not any_problem
+            else "📊 <b>Daily Status — issues detected</b>"
+        )
+        message = header + "\n\n" + "\n\n".join(lines)
         self.send_notification(message)

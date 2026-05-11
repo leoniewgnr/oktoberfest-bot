@@ -2,6 +2,7 @@
 
 import json
 import os
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any
@@ -25,11 +26,26 @@ class StateManager:
         return {}
 
     def _save(self):
-        """Save current state to file"""
-        Path(self.state_file).parent.mkdir(parents=True, exist_ok=True)
+        """Save current state to file atomically.
 
-        with open(self.state_file, 'w') as f:
-            json.dump(self.state, f, indent=2)
+        Writes to a temp file in the same directory, then os.replace() — so a
+        crash or SIGKILL mid-write can never leave a zero-byte state.json.
+        """
+        path = Path(self.state_file)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(
+            dir=str(path.parent), prefix=".state_", suffix=".tmp"
+        )
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(self.state, f, indent=2, ensure_ascii=False)
+            os.replace(tmp_path, path)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+            raise
 
     def get_tent_state(self, tent_id: str) -> Dict[str, Any]:
         """Get state for a specific tent"""

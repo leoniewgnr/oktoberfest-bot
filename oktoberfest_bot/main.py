@@ -3,14 +3,19 @@
 
 import asyncio
 import logging
+import random
 import sys
 from pathlib import Path
-from typing import Dict, List
+from typing import Any, Dict, List
 
 from .config_loader import ConfigLoader
 from .state_manager import StateManager
 from .notifiers import TelegramNotifier
 from .scrapers import FormSelectScraper
+
+# Per-tent loop tuning
+_JITTER_FRACTION = 0.10  # ±10% jitter on every check interval
+_MIN_SLEEP_SECONDS = 30  # safety floor so jitter can't drive cadence to zero
 
 # Default paths
 BASE_DIR = Path(__file__).parent.parent
@@ -253,33 +258,100 @@ async def check_tent(
             state_manager.mark_error_notified(tent_id)
 
 
+async def _tent_loop(
+    tent_config: Dict,
+    state_manager: StateManager,
+    notifier: TelegramNotifier,
+    logger: logging.Logger,
+):
+    """One independent loop per tent — own interval, own jitter."""
+    tent_name = tent_config['name']
+    interval = max(60, int(tent_config.get('check_interval', 180)))
+
+    # Small randomized stagger so all tents don't fire on the same wall-clock
+    # tick right after boot.
+    await asyncio.sleep(random.uniform(0, min(30, interval)))
+
+    while True:
+        try:
+            await check_tent(tent_config, state_manager, notifier, logger)
+        except Exception as e:
+            logger.error(f"{tent_name}: tent_loop unexpected error - {e}")
+
+        jitter = random.uniform(-_JITTER_FRACTION, _JITTER_FRACTION) * interval
+        sleep_for = max(_MIN_SLEEP_SECONDS, interval + jitter)
+        logger.debug(f"{tent_name}: sleeping {sleep_for:.1f}s")
+        await asyncio.sleep(sleep_for)
+
+
+async def _heartbeat_loop(
+    tents: List[Dict],
+    state_manager: StateManager,
+    notifier: TelegramNotifier,
+    logger: logging.Logger,
+    interval_seconds: int,
+):
+    """Periodic digest covering every monitored tent — so no tent silently drops."""
+    interval = max(60, int(interval_seconds))
+    while True:
+        await asyncio.sleep(interval)
+        try:
+            reports = []
+            for t in tents:
+                tent_id = t['id']
+                state = state_manager.get_tent_state(tent_id)
+                reports.append({
+                    'name': t['name'],
+                    'last_check_iso': state.get('last_check'),
+                    'available_count': len(state.get('available_dates') or []),
+                    'consecutive_errors': state.get('consecutive_errors', 0),
+                })
+            notifier.send_heartbeat(reports)
+            logger.info(f"Heartbeat sent — {len(reports)} tent(s)")
+        except Exception as e:
+            logger.error(f"heartbeat_loop error: {e}")
+
+
 async def monitor_loop(
     config_loader: ConfigLoader,
     state_manager: StateManager,
     notifier: TelegramNotifier,
     logger: logging.Logger,
+    config: Dict[str, Any],
 ):
-    """Main monitoring loop"""
+    """Main monitoring loop — one task per tent + one heartbeat task."""
     tents = config_loader.get_tents()
+    heartbeat_interval = int(config.get('heartbeat_interval_seconds', 86400))
 
-    logger.info("Starting Oktoberfest Monitor...")
-    logger.info(f"Monitoring {len(tents)} tent(s)")
-
+    logger.info(
+        f"Starting Oktoberfest Monitor — {len(tents)} tent(s), "
+        f"heartbeat every {heartbeat_interval}s"
+    )
     tent_names = [tent['name'] for tent in tents]
     min_interval = min(tent.get('check_interval', 180) for tent in tents)
     notifier.send_startup_notification(tent_names, min_interval)
 
-    while True:
-        try:
-            tasks = [check_tent(tent, state_manager, notifier, logger) for tent in tents]
-            await asyncio.gather(*tasks)
+    tasks = [
+        asyncio.create_task(
+            _tent_loop(t, state_manager, notifier, logger),
+            name=f"tent:{t['id']}",
+        )
+        for t in tents
+    ]
+    tasks.append(
+        asyncio.create_task(
+            _heartbeat_loop(tents, state_manager, notifier, logger, heartbeat_interval),
+            name="heartbeat",
+        )
+    )
 
-            logger.info(f"Waiting {min_interval} seconds until next check...")
-            await asyncio.sleep(min_interval)
-
-        except Exception as e:
-            logger.error(f"Error in monitoring loop: {e}")
-            await asyncio.sleep(60)
+    # Tasks loop forever; if one ever exits/crashes, log it and let the rest
+    # keep running. (asyncio.gather with return_exceptions surfaces crashes
+    # without killing siblings.)
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+    for task, result in zip(tasks, results):
+        if isinstance(result, BaseException):
+            logger.error(f"Task {task.get_name()} crashed: {result}")
 
 
 def main():
@@ -295,7 +367,7 @@ def main():
 
         notifier = TelegramNotifier(config['telegram_bot_token'], config['telegram_chat_id'])
 
-        asyncio.run(monitor_loop(config_loader, state_manager, notifier, logger))
+        asyncio.run(monitor_loop(config_loader, state_manager, notifier, logger, config))
 
     except KeyboardInterrupt:
         logger = logging.getLogger(__name__)

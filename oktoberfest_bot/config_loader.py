@@ -33,6 +33,8 @@ class ConfigLoader:
             print(f"Error: Missing required config fields: {', '.join(missing)}")
             sys.exit(1)
 
+        # Optional fields with sane defaults.
+        config.setdefault('heartbeat_interval_seconds', 86400)  # 24h
         return config
 
     def _load_tents(self) -> List[Dict[str, Any]]:

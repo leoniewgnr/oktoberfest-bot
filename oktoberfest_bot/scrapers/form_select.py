@@ -13,6 +13,30 @@ from .base_scraper import BaseScraper, ScrapeResult
 logger = logging.getLogger(__name__)
 
 
+# Phrases tents show when they haven't published reservations yet. If the page
+# loads (no bot-check / no DOM error) but lacks a date <select>, AND contains
+# any of these, we treat that as "tent is up, just no slots yet" — success with
+# zero dates rather than an error.
+_NO_SLOTS_PHRASES = (
+    "kein termin verfügbar",
+    "keine reservierung",
+    "noch keine reservierung",
+    "regelmäßigen abständen",          # "Wir stellen in regelmäßigen Abständen..."
+    "regelmäßigen abständen neue",
+    "demnächst",
+    "no availability",
+    "no reservations available",
+)
+
+
+def _looks_like_no_slots_message(body_text: str) -> bool:
+    """Heuristic: does the page body look like a tent saying 'no slots yet'?"""
+    if not body_text:
+        return False
+    t = body_text.lower()
+    return any(phrase in t for phrase in _NO_SLOTS_PHRASES)
+
+
 class FormSelectScraper(BaseScraper):
     """Scraper for tents using select dropdown detection"""
 
@@ -132,12 +156,32 @@ class FormSelectScraper(BaseScraper):
                 try:
                     await page.wait_for_selector(date_selector, timeout=60000)
                 except Exception:
-                    # Capture a tiny hint for debugging (often a bot-check page).
+                    # Distinguish "no slots published yet" (legitimate empty state)
+                    # from real scrape failure (bot-check / DOM change). Empty state
+                    # should be reported as a success with zero dates, NOT as an
+                    # error, so we don't spam error alerts or trigger the headed
+                    # fallback unnecessarily.
+                    body_head = ""
                     try:
-                        body_head = (await page.inner_text('body'))[:200].replace('\n', ' ')
-                        logger.warning(f"Date select not found; body starts with: {body_head!r}")
+                        body_head = (await page.inner_text('body'))[:600]
                     except Exception:
                         pass
+                    if _looks_like_no_slots_message(body_head):
+                        logger.info(
+                            f"{self.tent_name}: no slots published yet "
+                            "(empty-state page detected)"
+                        )
+                        return ScrapeResult(
+                            success=True,
+                            dates_available=False,
+                            available_dates=[],
+                            available_times={},
+                        )
+                    if body_head:
+                        logger.warning(
+                            f"Date select not found; body starts with: "
+                            f"{body_head[:200].replace(chr(10), ' ')!r}"
+                        )
                     return ScrapeResult(success=False, error='Select element not found')
 
                 # Dates
@@ -250,14 +294,22 @@ class FormSelectScraper(BaseScraper):
                 if result.success:
                     return result
 
-                # Fallback: headed Chromium inside Xvfb (often passes bot-protection)
+                # Fallback: headed Chromium inside Xvfb (often passes bot-protection).
+                # Only attempt this if Xvfb actually starts — otherwise we'd launch
+                # a headed browser without a display and crash the call. Without
+                # Xvfb, return the original headless failure instead.
                 await browser.close()
                 browser = None
 
                 xvfb_proc, display = self._start_xvfb()
-                if display:
-                    os.environ['DISPLAY'] = display
+                if not display:
+                    logger.info(
+                        f"{self.tent_name}: headless failed, Xvfb unavailable — "
+                        "skipping headed fallback"
+                    )
+                    return result
 
+                os.environ['DISPLAY'] = display
                 browser = await _launch(headless=False)
                 result2 = await _run_once(browser)
                 return result2
