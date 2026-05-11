@@ -1,73 +1,82 @@
 """Slot filters — decide which scraped reservation slots warrant a Telegram alert.
 
-User rule: skip Mon–Fri Mittag (incl. "Mittagstisch"). Alert on everything else:
-all Abend any day, Sa/So Mittag, any non-Mittag shift on Mon–Fri.
+User rule: alert only on Abend (evening) slots and on slots whose shift is
+unknown (defensive — don't risk missing a date that just didn't expose its
+shift word). Suppress everything that's clearly Mittag, Vormittag, or daytime.
 
-Defensive: when the date text can't be parsed for a weekday, alert anyway —
-false alert > missed reservation.
+Concretely:
+- Alert: "Abend", "Abendveranstaltung", "dinner", "evening", numeric times >= 18:00,
+        and any text where we can't determine the shift (no Mittag/Vormittag/Abend
+        word and no numeric time, e.g. date-only "Mittwoch, 23.09.2026").
+- Skip:  "Mittag", "Mittagstisch", "lunch", "noon", "Vormittag", numeric times
+        entirely within 10:00–17:59.
 """
 
 from __future__ import annotations
 
 import re
-from datetime import date
-from typing import Optional
 
-# Full names first so "Mittwoch" matches before the short "Mi".
-_WEEKDAY_RE = re.compile(
-    r"\b(montag|dienstag|mittwoch|donnerstag|freitag|samstag|sonntag"
-    r"|mo|di|mi|do|fr|sa|so)\b",
-    re.IGNORECASE,
-)
-_DATE_RE = re.compile(r"\b(\d{1,2})[./](\d{1,2})[./](\d{4})\b")
-# Match "Mittag" or "Mittagstisch" but NOT "Vormittag" (= morning, NOT lunch).
+# "Mittag" or "Mittagstisch" but NOT "Vormittag" (= morning, not lunch).
 _MITTAG_RE = re.compile(r"(?<!vor)\bmittag", re.IGNORECASE)
-
-_WEEKDAY_TO_NUM = {
-    "montag": 0, "mo": 0,
-    "dienstag": 1, "di": 1,
-    "mittwoch": 2, "mi": 2,
-    "donnerstag": 3, "do": 3,
-    "freitag": 4, "fr": 4,
-    "samstag": 5, "sa": 5,
-    "sonntag": 6, "so": 6,
-}
+_VORMITTAG_RE = re.compile(r"\bvormittag", re.IGNORECASE)
+_ABEND_RE = re.compile(r"\babend", re.IGNORECASE)  # Abend, Abendveranstaltung
+_LUNCH_EN_RE = re.compile(r"\b(lunch|noon)\b", re.IGNORECASE)
+_DINNER_EN_RE = re.compile(r"\b(dinner|evening)\b", re.IGNORECASE)
+_TIME_RE = re.compile(r"\b(\d{1,2}):(\d{2})\b")
 
 
-def extract_weekday(text: str) -> Optional[int]:
-    """Return 0..6 (Mon=0..Sun=6) parsed from text, or None if undetermined."""
+def is_abend(text: str) -> bool:
+    """True if text clearly indicates an evening shift."""
     if not text:
-        return None
-    m = _WEEKDAY_RE.search(text)
-    if m:
-        return _WEEKDAY_TO_NUM[m.group(1).lower()]
-    m = _DATE_RE.search(text)
-    if m:
-        try:
-            return date(int(m.group(3)), int(m.group(2)), int(m.group(1))).weekday()
-        except ValueError:
-            return None
-    return None
+        return False
+    if _ABEND_RE.search(text) or _DINNER_EN_RE.search(text):
+        return True
+    # Any numeric time at or after 18:00 in the text → evening.
+    for m in _TIME_RE.finditer(text):
+        hour = int(m.group(1))
+        if 18 <= hour <= 23:
+            return True
+    return False
 
 
 def is_mittag(text: str) -> bool:
-    return bool(_MITTAG_RE.search(text or ""))
+    """True if text clearly indicates a lunch / midday shift."""
+    if not text:
+        return False
+    return bool(_MITTAG_RE.search(text) or _LUNCH_EN_RE.search(text))
+
+
+def is_vormittag_or_daytime(text: str) -> bool:
+    """True if text clearly indicates morning/daytime BUT not evening."""
+    if not text:
+        return False
+    if _VORMITTAG_RE.search(text):
+        return True
+    # All numeric times are in the 10:00–17:59 daytime band AND there's at least one.
+    hours = [int(m.group(1)) for m in _TIME_RE.finditer(text)]
+    if hours and all(10 <= h <= 17 for h in hours):
+        return True
+    return False
 
 
 def should_alert(date_text: str = "", time_text: str = "") -> bool:
     """Return True if a slot should fire a Telegram alert.
 
-    Rule: skip ONLY Mon–Fri Mittag (including "Mittagstisch"). Alert on
-    everything else, including any slot we can't parse confidently.
+    Rule: alert on Abend (or anything clearly evening) and on slots whose
+    shift cannot be determined. Suppress explicit Mittag/Vormittag/daytime.
 
     Either argument may be empty. They're inspected together so the weekday
-    can come from `date_text` while the shift word ("Mittag"/"Abend") comes
-    from `time_text` — the common case for time-slot tents.
+    can come from date_text while the shift word comes from time_text.
     """
     combined = f"{date_text or ''} {time_text or ''}".strip()
-    wd = extract_weekday(combined)
-    if wd is None:
-        return True  # unknown weekday → don't risk missing
-    if wd >= 5:  # Sa or So → always alert
+    if not combined:
+        return True  # truly nothing → alert defensively
+
+    if is_abend(combined):
         return True
-    return not is_mittag(combined)
+    if is_mittag(combined):
+        return False
+    if is_vormittag_or_daytime(combined):
+        return False
+    # No discriminating signal at all → alert (defensive).
+    return True

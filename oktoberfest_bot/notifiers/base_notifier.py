@@ -184,41 +184,60 @@ class BaseNotifier(ABC):
     def send_heartbeat(self, tent_reports: List[Dict[str, Any]]):
         """Periodic 'still alive' digest covering every monitored tent.
 
-        Each report dict: {name, last_check_iso, available_count, consecutive_errors}.
-        Goal: if any tent silently stops being polled, it's visible in the digest.
+        Each report dict: {name, last_check_iso, available_count,
+        consecutive_errors, slot_pairs}. Goal: if any tent silently stops
+        being polled, it's visible in the digest. Slot pairs are listed so
+        the user can see at a glance which date/time combinations the bot is
+        currently tracking (incl. ones suppressed by the alert filter).
         """
         import html
 
-        lines: List[str] = []
+        _MAX_SLOTS_PER_TENT = 20  # keep message under Telegram's 4096-char limit
+
+        sections: List[str] = []
         any_problem = False
         for r in tent_reports:
             name = html.escape(str(r.get("name", "?")))
             last = _fmt_iso_local(r.get("last_check_iso"))
             count = int(r.get("available_count", 0))
             errs = int(r.get("consecutive_errors", 0))
+            slot_pairs: List[str] = list(r.get("slot_pairs") or [])
 
             if errs >= 5:
                 icon = "⚠️"
-                detail = f"   ⚠ {errs} consecutive error(s)"
+                status = f"⚠ {errs} consecutive error(s)"
                 any_problem = True
             elif r.get("last_check_iso") is None:
                 icon = "❓"
-                detail = "   (no successful check yet)"
+                status = "no successful check yet"
                 any_problem = True
+            elif count == 0:
+                icon = "✅"
+                status = "no dates published yet"
             else:
                 icon = "✅"
-                detail = f"   Tracking {count} date(s)"
+                status = f"{count} date(s) tracked"
 
-            lines.append(
+            section = (
                 f"{icon} <b>{name}</b>\n"
                 f"   Last check: {html.escape(last)}\n"
-                f"{detail}"
+                f"   {status}"
             )
+
+            if slot_pairs:
+                shown = slot_pairs[:_MAX_SLOTS_PER_TENT]
+                hidden = max(0, len(slot_pairs) - len(shown))
+                bullets = "\n".join(f"   • {html.escape(s)}" for s in shown)
+                section += "\n" + bullets
+                if hidden:
+                    section += f"\n   …and {hidden} more"
+
+            sections.append(section)
 
         header = (
             "📊 <b>Daily Status</b>"
             if not any_problem
             else "📊 <b>Daily Status — issues detected</b>"
         )
-        message = header + "\n\n" + "\n\n".join(lines)
+        message = header + "\n\n" + "\n\n".join(sections)
         self.send_notification(message)

@@ -305,6 +305,7 @@ async def _heartbeat_loop(
                     'last_check_iso': state.get('last_check'),
                     'available_count': len(state.get('available_dates') or []),
                     'consecutive_errors': state.get('consecutive_errors', 0),
+                    'slot_pairs': state_manager.get_slot_pairs(tent_id),
                 })
             notifier.send_heartbeat(reports)
             logger.info(f"Heartbeat sent — {len(reports)} tent(s)")

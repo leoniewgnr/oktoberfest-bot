@@ -112,6 +112,31 @@ class StateManager:
         """Get mapping of available times per date (if configured)."""
         return self.get_tent_state(tent_id).get('available_times', {})
 
+    def get_slot_pairs(self, tent_id: str) -> List[str]:
+        """Return human-readable "date [– time]" strings for every slot tracked.
+
+        Used by the heartbeat digest. Slots include all dates the scraper saw,
+        regardless of whether the user filter would alert on them — heartbeat
+        reports what the bot is *tracking*, not what it's alerting on.
+        """
+        state = self.get_tent_state(tent_id)
+        dates = state.get('available_dates') or []
+        times_by_date = state.get('available_times') or {}
+
+        pairs: List[str] = []
+        for date in dates:
+            date_value = date.get('value')
+            date_text = (date.get('text') or '').strip()
+            times_info = times_by_date.get(date_value) if date_value is not None else None
+            times = (times_info or {}).get('times') if times_info else None
+            if times:
+                for t in times:
+                    t_text = (t.get('text') or '').strip()
+                    pairs.append(f"{date_text} – {t_text}" if t_text else date_text)
+            else:
+                pairs.append(date_text)
+        return pairs
+
     def is_error_notified(self, tent_id: str) -> bool:
         """Check if error notification has been sent for current error state"""
         return self.get_tent_state(tent_id).get('error_notified', False)
