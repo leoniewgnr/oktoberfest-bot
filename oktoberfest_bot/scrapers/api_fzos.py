@@ -71,6 +71,12 @@ _areas_cache: Dict[Tuple[str, str], List[Dict[str, str]]] = {}
 _areas_cache_lock = threading.Lock()
 
 
+class _RateLimitedError(Exception):
+    """Sentinel: Cloudflare returned 429 for a definitions call.
+    Caller should stop fetching further definitions for this cycle."""
+    pass
+
+
 def prime_areas_cache(api_host: str, areas_by_uid: Dict[str, Dict[str, Any]]) -> int:
     """Pre-populate the area cache for one tent from persisted state.
 
@@ -147,9 +153,16 @@ class ApiFzosScraper(BaseScraper):
         available_times: Dict[str, Dict[str, Any]] = {}
         available_areas: Dict[str, Dict[str, Any]] = {}
 
-        # Two passes so cached vs fetched UIDs are handled separately and
-        # the inter-call delay only applies to actual network fetches.
+        # Cache + fetch pass. If we hit Cloudflare rate-limiting (429) on any
+        # definitions call, stop fetching further definitions for THIS cycle —
+        # the missing UIDs will fill in over subsequent cycles as the cache
+        # warms up. This keeps a cold-cache Schottenhamel scrape (17 UIDs)
+        # from holding the global API lock for minutes while uselessly
+        # retrying.
         fetched_count = 0
+        skipped_due_to_429 = 0
+        rate_limited_this_cycle = False
+
         for g in guestlists:
             uid = g.get("uid")
             if not uid:
@@ -176,12 +189,21 @@ class ApiFzosScraper(BaseScraper):
                 available_areas[uid] = {"date_text": name, "areas": cached}
                 continue
 
+            if rate_limited_this_cycle:
+                # Don't keep hammering the same rate-limited host.
+                skipped_due_to_429 += 1
+                continue
+
             # Cache miss → fetch with paced inter-call delay.
             if fetched_count > 0:
                 time.sleep(_INTER_CALL_DELAY_S)
             try:
                 areas = self._fetch_areas(uid)
                 fetched_count += 1
+            except _RateLimitedError:
+                rate_limited_this_cycle = True
+                skipped_due_to_429 += 1
+                continue
             except Exception as e:
                 logger.warning(
                     f"{self.tent_name}: definitions for {uid} failed - {e}"
@@ -193,10 +215,11 @@ class ApiFzosScraper(BaseScraper):
                 with _areas_cache_lock:
                     _areas_cache[cache_key] = areas
 
-        if fetched_count:
+        if fetched_count or skipped_due_to_429:
+            cached_count = len(guestlists) - fetched_count - skipped_due_to_429
             logger.info(
-                f"{self.tent_name}: fetched {fetched_count} new area definition(s); "
-                f"{len(guestlists) - fetched_count} served from cache"
+                f"{self.tent_name}: areas → {fetched_count} fetched, "
+                f"{cached_count} cached, {skipped_due_to_429} skipped (rate-limited)"
             )
 
         return ScrapeResult(
@@ -208,7 +231,10 @@ class ApiFzosScraper(BaseScraper):
         )
 
     def _get_with_retry(self, url: str) -> "requests.Response":
-        """GET that retries once on 429 after a longer sleep."""
+        """GET that retries the top-level guestlists call once on 429
+        (the list is small and worth retrying). Definitions calls use a
+        different code path (_fetch_areas) and do NOT retry — they fall
+        through to the cache-fills-over-time strategy instead."""
         resp = requests.get(url, headers=self._headers(), timeout=_REQUEST_TIMEOUT)
         if resp.status_code == 429:
             logger.warning(
@@ -221,7 +247,12 @@ class ApiFzosScraper(BaseScraper):
 
     def _fetch_areas(self, uid: str) -> List[Dict[str, str]]:
         url = f"https://{self.api_host}/lp/guestlists/{uid}/definitions"
-        resp = self._get_with_retry(url)
+        resp = requests.get(url, headers=self._headers(), timeout=_REQUEST_TIMEOUT)
+        if resp.status_code == 429:
+            # Raise sentinel; caller will abort further definitions this cycle.
+            raise _RateLimitedError(
+                f"definitions for {uid} returned 429 (rate-limited)"
+            )
         if resp.status_code != 200:
             raise RuntimeError(
                 f"definitions returned {resp.status_code}: {resp.text[:200]}"
