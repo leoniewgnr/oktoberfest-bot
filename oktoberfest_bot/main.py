@@ -11,7 +11,8 @@ from typing import Any, Dict, List
 from .config_loader import ConfigLoader
 from .state_manager import StateManager
 from .notifiers import TelegramNotifier
-from .scrapers import FormSelectScraper
+from .scrapers import ApiFzosScraper, FormSelectScraper
+from .scrapers.api_fzos import prime_areas_cache
 
 # Per-tent loop tuning
 _JITTER_FRACTION = 0.10  # ±10% jitter on every check interval
@@ -44,6 +45,8 @@ def create_scraper(tent_config: Dict):
 
     if scraper_type == 'form_select':
         return FormSelectScraper(tent_config)
+    if scraper_type == 'api_fzos':
+        return ApiFzosScraper(tent_config)
     raise ValueError(f"Unknown scraper type: {scraper_type}")
 
 
@@ -143,6 +146,7 @@ async def check_tent(
             was_in_error_state = state_manager.is_error_notified(tent_id)
 
             prev_times = state_manager.get_available_times(tent_id)
+            prev_areas = state_manager.get_available_areas(tent_id)
             prev_dates = state_manager.get_available_dates(tent_id)
             prev_date_values = _values(prev_dates)
 
@@ -176,12 +180,46 @@ async def check_tent(
                     if new_times:
                         newly_available_times.append((info.get('date_text') or date_value, new_times))
 
+            # Detect newly available areas (only API scrapers populate this).
+            # We only consider areas appearing on dates that were ALREADY tracked
+            # before this scrape — areas on brand-new dates ride along with the
+            # new-dates notification via areas_by_date_value below.
+            newly_available_areas = []  # list of (date_text, time_text, [new_area, ...])
+            if result.available_areas:
+                # shift label per date value (used for the suppression filter)
+                shift_by_date_value: Dict[str, str] = {}
+                for dv, info in (result.available_times or {}).items():
+                    times = info.get('times') or []
+                    if times:
+                        shift_by_date_value[dv] = (times[0].get('text') or '').strip()
+                for date_value, info in result.available_areas.items():
+                    if date_value not in prev_date_values:
+                        continue  # brand-new date: areas are reported with the date alert
+                    prev_for_date = prev_areas.get(date_value, {})
+                    prev_area_values = _values(prev_for_date.get('areas', []))
+                    current_areas = info.get('areas', [])
+                    new_areas = [a for a in current_areas if a.get('value') not in prev_area_values]
+                    if new_areas:
+                        newly_available_areas.append((
+                            info.get('date_text') or date_value,
+                            shift_by_date_value.get(date_value, ''),
+                            new_areas,
+                        ))
+
+            # Build {date_value: [area, ...]} lookup for inline-rendering in
+            # the date alert messages.
+            areas_by_date_value: Dict[str, List[Dict]] = {
+                dv: (info.get('areas') or [])
+                for dv, info in (result.available_areas or {}).items()
+            }
+
             # Update state
             state_manager.mark_check_success(
                 tent_id,
                 result.dates_available,
                 result.available_dates,
                 result.available_times,
+                result.available_areas,
             )
 
             # State change: dates
@@ -190,11 +228,25 @@ async def check_tent(
 
                 # Prefer combined date+time slot text when we can extract times.
                 combined_slots = _combine_date_times(result.available_dates, result.available_times)
-                notifier.send_dates_available(tent_name, tent_config['url'], combined_slots)
+                notifier.send_dates_available(
+                    tent_name, tent_config['url'], combined_slots, areas_by_date_value,
+                )
 
                 # If the page also exposes time slots, announce them too.
                 for date_text, new_times in newly_available_times:
-                    notifier.send_times_available(tent_name, tent_config['url'], date_text, new_times)
+                    # find corresponding date_value to look up areas
+                    dv = next(
+                        (d.get('value') for d in result.available_dates
+                         if (d.get('text') or '').strip() == date_text),
+                        None,
+                    )
+                    current_areas = areas_by_date_value.get(dv) if dv else None
+                    notifier.send_times_available(
+                        tent_name, tent_config['url'], date_text, new_times, current_areas,
+                    )
+
+                # Area-only changes for already-tracked dates can't apply here
+                # since this is the first time we have any dates.
 
             elif not result.dates_available and was_available:
                 logger.info(f"{tent_name}: Dates no longer available")
@@ -221,7 +273,9 @@ async def check_tent(
                         if tent_config.get('time_selector'):
                             combined_new = [o for o in combined_new if _has_time_label(o.get('text', ''))]
                         if combined_new:
-                            notifier.send_new_dates_added(tent_name, tent_config['url'], combined_new)
+                            notifier.send_new_dates_added(
+                                tent_name, tent_config['url'], combined_new, areas_by_date_value,
+                            )
 
                     # New time slots can appear even if dates stay available.
                     for date_text, new_times in newly_available_times:
@@ -233,7 +287,25 @@ async def check_tent(
                             )
                         except Exception:
                             pass
-                        notifier.send_times_available(tent_name, tent_config['url'], date_text, new_times)
+                        dv = next(
+                            (d.get('value') for d in result.available_dates
+                             if (d.get('text') or '').strip() == date_text),
+                            None,
+                        )
+                        current_areas = areas_by_date_value.get(dv) if dv else None
+                        notifier.send_times_available(
+                            tent_name, tent_config['url'], date_text, new_times, current_areas,
+                        )
+
+                    # New areas can appear independently for an already-tracked slot.
+                    for date_text, time_text, new_areas in newly_available_areas:
+                        logger.info(
+                            f"{tent_name}: New areas for {date_text} – {time_text}: "
+                            + ", ".join([str(a.get('text', '')).strip() for a in new_areas])
+                        )
+                        notifier.send_areas_available(
+                            tent_name, tent_config['url'], date_text, time_text, new_areas,
+                        )
                 else:
                     logger.info(f"{tent_name}: No dates available yet")
 
@@ -323,6 +395,17 @@ async def monitor_loop(
     """Main monitoring loop — one task per tent + one heartbeat task."""
     tents = config_loader.get_tents()
     heartbeat_interval = int(config.get('heartbeat_interval_seconds', 86400))
+
+    # Prime the API scraper's area-definitions cache from persisted state so
+    # we don't burst Cloudflare with N fetches on every restart.
+    for t in tents:
+        if t.get('scraper_type') == 'api_fzos' and t.get('api_host'):
+            primed = prime_areas_cache(
+                t['api_host'],
+                state_manager.get_available_areas(t['id']),
+            )
+            if primed:
+                logger.info(f"{t['name']}: primed {primed} area cache entry(ies) from state")
 
     logger.info(
         f"Starting Oktoberfest Monitor — {len(tents)} tent(s), "

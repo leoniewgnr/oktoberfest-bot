@@ -14,6 +14,7 @@ class ScrapeResult:
         dates_available: bool = False,
         available_dates: Optional[List[Dict]] = None,
         available_times: Optional[Dict[str, Dict[str, Any]]] = None,
+        available_areas: Optional[Dict[str, Dict[str, Any]]] = None,
         error: str = None,
     ):
         self.success = success
@@ -22,6 +23,10 @@ class ScrapeResult:
         # available_times is an optional mapping keyed by date "value".
         # Each entry: {"date_text": str, "times": [{"value": str, "text": str}, ...]}
         self.available_times = available_times or {}
+        # available_areas (optional, populated only by scrapers that have area data,
+        # e.g. the FZOS REST API). Keyed by date "value" (same key space as
+        # available_times). Each entry: {"date_text": str, "areas": [{"value", "text"}, ...]}
+        self.available_areas = available_areas or {}
         self.error = error
         self.timestamp = datetime.now().isoformat()
 
@@ -35,6 +40,7 @@ class ScrapeResult:
             result['dates_available'] = self.dates_available
             result['available_dates'] = self.available_dates
             result['available_times'] = self.available_times
+            result['available_areas'] = self.available_areas
         else:
             result['error'] = self.error
         return result

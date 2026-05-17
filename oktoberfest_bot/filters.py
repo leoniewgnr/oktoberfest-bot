@@ -19,6 +19,7 @@ import re
 # "Mittag" or "Mittagstisch" but NOT "Vormittag" (= morning, not lunch).
 _MITTAG_RE = re.compile(r"(?<!vor)\bmittag", re.IGNORECASE)
 _VORMITTAG_RE = re.compile(r"\bvormittag", re.IGNORECASE)
+_FRUEHSCHOPPEN_RE = re.compile(r"\bfr(ü|ue?)hschoppen", re.IGNORECASE)
 _ABEND_RE = re.compile(r"\babend", re.IGNORECASE)  # Abend, Abendveranstaltung
 _LUNCH_EN_RE = re.compile(r"\b(lunch|noon)\b", re.IGNORECASE)
 _DINNER_EN_RE = re.compile(r"\b(dinner|evening)\b", re.IGNORECASE)
@@ -44,6 +45,13 @@ def is_mittag(text: str) -> bool:
     if not text:
         return False
     return bool(_MITTAG_RE.search(text) or _LUNCH_EN_RE.search(text))
+
+
+def is_fruehschoppen(text: str) -> bool:
+    """True if text clearly indicates a Frühschoppen (Sunday-morning beer) shift."""
+    if not text:
+        return False
+    return bool(_FRUEHSCHOPPEN_RE.search(text))
 
 
 def is_vormittag_or_daytime(text: str) -> bool:
@@ -75,6 +83,8 @@ def should_alert(date_text: str = "", time_text: str = "") -> bool:
     if is_abend(combined):
         return True
     if is_mittag(combined):
+        return False
+    if is_fruehschoppen(combined):
         return False
     if is_vormittag_or_daytime(combined):
         return False

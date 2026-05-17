@@ -28,6 +28,32 @@ def _fmt_iso_local(iso: Optional[str]) -> str:
     return dt.strftime("%Y-%m-%d %H:%M %Z").strip()
 
 
+def _format_slot_line(
+    date: Dict,
+    areas_by_date_value: Optional[Dict[str, List[Dict]]] = None,
+) -> str:
+    """Render one slot line for a notification body, appending Bereiche when
+    available. Uses Telegram HTML escaping on user-supplied text."""
+    import html as _html
+
+    text = _html.escape(str(date.get("text", "")))
+    line = f"• {text}"
+    if not areas_by_date_value:
+        return line
+    value = date.get("value")
+    areas = areas_by_date_value.get(value) if value is not None else None
+    if not areas:
+        return line
+    labels = [
+        (a.get("text") or "").strip()
+        for a in areas
+        if (a.get("text") or "").strip()
+    ]
+    if not labels:
+        return line
+    return line + "  —  " + _html.escape(", ".join(labels))
+
+
 class BaseNotifier(ABC):
     """Abstract base class for notification services"""
 
@@ -79,13 +105,19 @@ class BaseNotifier(ABC):
         )
         self.send_notification(message)
 
-    def send_dates_available(self, tent_name: str, tent_url: str, available_dates: List[Dict]):
+    def send_dates_available(
+        self,
+        tent_name: str,
+        tent_url: str,
+        available_dates: List[Dict],
+        areas_by_date_value: Dict[str, List[Dict]] = None,
+    ):
         """Send notification when dates become available.
 
         Note: This should communicate the *reservation slot* (as shown on the website),
         i.e., date+time if the site exposes it in the option text.
-        Weekday-Mittag slots are suppressed (only when both can be inferred from the
-        combined option text). Date-only options with no shift indicator pass through.
+        If the scraper supplies area data per date (FZOS API tents), those are
+        inlined under each slot line.
         """
         filtered = [d for d in available_dates if should_alert(d.get('text', ''))]
         if not filtered:
@@ -93,7 +125,9 @@ class BaseNotifier(ABC):
 
         import html
 
-        dates_text = "\n".join([f"• {html.escape(str(date.get('text', '')))}" for date in filtered])
+        dates_text = "\n".join(
+            _format_slot_line(d, areas_by_date_value) for d in filtered
+        )
 
         message = (
             f"🍺🎉 <b>{tent_name.upper()} - TABLES AVAILABLE!</b> 🎉🍺\n\n"
@@ -104,7 +138,13 @@ class BaseNotifier(ABC):
         message_id = self.send_notification(message)
         self._maybe_react(message_id, "🍺")
 
-    def send_new_dates_added(self, tent_name: str, tent_url: str, new_dates: List[Dict]):
+    def send_new_dates_added(
+        self,
+        tent_name: str,
+        tent_url: str,
+        new_dates: List[Dict],
+        areas_by_date_value: Dict[str, List[Dict]] = None,
+    ):
         """Send notification when additional options are added while availability already existed."""
         filtered = [d for d in new_dates if should_alert(d.get('text', ''))]
         if not filtered:
@@ -112,7 +152,9 @@ class BaseNotifier(ABC):
 
         import html
 
-        dates_text = "\n".join([f"• {html.escape(str(date.get('text', '')))}" for date in filtered])
+        dates_text = "\n".join(
+            _format_slot_line(d, areas_by_date_value) for d in filtered
+        )
 
         message = (
             f"🆕📅 <b>{tent_name.upper()} - NEW OPTIONS ADDED!</b> 📅🆕\n\n"
@@ -123,10 +165,17 @@ class BaseNotifier(ABC):
         message_id = self.send_notification(message)
         self._maybe_react(message_id, "📅")
 
-    def send_times_available(self, tent_name: str, tent_url: str, date_text: str, new_times: List[Dict]):
-        """Send notification when new time slots become available for an already-available date."""
-        # Weekday-aware filter: pass both date and time so Mon–Fri Mittag is
-        # suppressed but Sa/So Mittag and any Abend are not.
+    def send_times_available(
+        self,
+        tent_name: str,
+        tent_url: str,
+        date_text: str,
+        new_times: List[Dict],
+        current_areas: List[Dict] = None,
+    ):
+        """Send notification when new time slots become available for an
+        already-available date. Includes the currently-tracked Bereich list
+        for that date if the scraper provides it (API tents)."""
         filtered = [
             t for t in new_times
             if not self._should_suppress_midday(t.get('text', ''), date_text)
@@ -139,15 +188,68 @@ class BaseNotifier(ABC):
         safe_date_text = html.escape(str(date_text or ""))
         times_text = "\n".join([f"• {html.escape(str(t.get('text', '')))}" for t in filtered])
 
+        area_line = ""
+        if current_areas:
+            area_labels = [
+                (a.get('text') or '').strip()
+                for a in current_areas
+                if (a.get('text') or '').strip()
+            ]
+            if area_labels:
+                area_line = (
+                    f"Bereiche: <b>{html.escape(', '.join(area_labels))}</b>\n"
+                )
+
         message = (
             f"⏰🎉 <b>{tent_name.upper()} - NEW TIME SLOTS!</b> 🎉⏰\n\n"
             f"Day: <b>{safe_date_text}</b>\n"
+            f"{area_line}"
             f"New time option(s) found ({len(filtered)}):\n"
             f"{times_text}\n\n"
             f"🔗 Book now: {tent_url}"
         )
         message_id = self.send_notification(message)
         self._maybe_react(message_id, "⏰")
+
+    def send_areas_available(
+        self,
+        tent_name: str,
+        tent_url: str,
+        date_text: str,
+        time_text: str,
+        new_areas: List[Dict],
+    ):
+        """Send notification when new Bereich(e) appear for an
+        already-tracked slot. Only the API scraper produces area data."""
+        if not new_areas:
+            return
+        # Apply the same shift filter as send_times_available — don't notify
+        # about new areas appearing on a slot whose shift the user wants to
+        # ignore (e.g. Mittag).
+        if self._should_suppress_midday(time_text or "", date_text):
+            return
+
+        import html
+
+        safe_date_text = html.escape(str(date_text or ""))
+        safe_time_text = html.escape(str(time_text or ""))
+        areas_text = "\n".join(
+            f"• {html.escape(str(a.get('text', '')))}" for a in new_areas
+        )
+        slot_line = (
+            f"Day: <b>{safe_date_text}</b> – <b>{safe_time_text}</b>"
+            if safe_time_text
+            else f"Day: <b>{safe_date_text}</b>"
+        )
+        message = (
+            f"📍🆕 <b>{tent_name.upper()} - NEW BEREICH(E)!</b> 🆕📍\n\n"
+            f"{slot_line}\n"
+            f"New area(s) ({len(new_areas)}):\n"
+            f"{areas_text}\n\n"
+            f"🔗 Book now: {tent_url}"
+        )
+        message_id = self.send_notification(message)
+        self._maybe_react(message_id, "📍")
 
     def send_dates_unavailable(self, tent_name: str):
         """Send notification when dates become unavailable"""

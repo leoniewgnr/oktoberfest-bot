@@ -56,12 +56,16 @@ class StateManager:
                 "available_dates": [],
                 # Optional: mapping keyed by date value -> {date_text, times:[{value,text}, ...]}
                 "available_times": {},
+                # Optional: mapping keyed by date value -> {date_text, areas:[{value,text}, ...]}
+                "available_areas": {},
                 "consecutive_errors": 0,
                 "error_notified": False,
             }
         # Backwards compat for old state files
         if 'available_times' not in self.state[tent_id]:
             self.state[tent_id]['available_times'] = {}
+        if 'available_areas' not in self.state[tent_id]:
+            self.state[tent_id]['available_areas'] = {}
         return self.state[tent_id]
 
     def update_tent_state(self, tent_id: str, **kwargs):
@@ -76,6 +80,7 @@ class StateManager:
         dates_available: bool,
         available_dates: List[Dict] = None,
         available_times: Dict[str, Dict[str, Any]] = None,
+        available_areas: Dict[str, Dict[str, Any]] = None,
     ):
         """Mark a successful check for a tent"""
         self.update_tent_state(
@@ -84,6 +89,7 @@ class StateManager:
             dates_available=dates_available,
             available_dates=available_dates or [],
             available_times=available_times or {},
+            available_areas=available_areas or {},
             consecutive_errors=0,
             error_notified=False,
         )
@@ -112,16 +118,19 @@ class StateManager:
         """Get mapping of available times per date (if configured)."""
         return self.get_tent_state(tent_id).get('available_times', {})
 
-    def get_slot_pairs(self, tent_id: str) -> List[str]:
-        """Return human-readable "date [– time]" strings for every slot tracked.
+    def get_available_areas(self, tent_id: str) -> Dict[str, Dict[str, Any]]:
+        """Get mapping of available areas per date (only populated by API scrapers)."""
+        return self.get_tent_state(tent_id).get('available_areas', {})
 
-        Used by the heartbeat digest. Slots include all dates the scraper saw,
-        regardless of whether the user filter would alert on them — heartbeat
-        reports what the bot is *tracking*, not what it's alerting on.
+    def get_slot_pairs(self, tent_id: str) -> List[str]:
+        """Return human-readable "date [– time] [— areas: ...]" strings for every
+        slot tracked. Used by the heartbeat digest. Includes all dates the
+        scraper saw regardless of the alert filter.
         """
         state = self.get_tent_state(tent_id)
         dates = state.get('available_dates') or []
         times_by_date = state.get('available_times') or {}
+        areas_by_date = state.get('available_areas') or {}
 
         pairs: List[str] = []
         for date in dates:
@@ -129,12 +138,23 @@ class StateManager:
             date_text = (date.get('text') or '').strip()
             times_info = times_by_date.get(date_value) if date_value is not None else None
             times = (times_info or {}).get('times') if times_info else None
+            areas_info = areas_by_date.get(date_value) if date_value is not None else None
+            areas = (areas_info or {}).get('areas') if areas_info else None
+            area_suffix = ""
+            if areas:
+                labels = [
+                    (a.get('text') or '').strip() for a in areas
+                    if (a.get('text') or '').strip()
+                ]
+                if labels:
+                    area_suffix = "  —  " + ", ".join(labels)
             if times:
                 for t in times:
                     t_text = (t.get('text') or '').strip()
-                    pairs.append(f"{date_text} – {t_text}" if t_text else date_text)
+                    base = f"{date_text} – {t_text}" if t_text else date_text
+                    pairs.append(base + area_suffix)
             else:
-                pairs.append(date_text)
+                pairs.append(date_text + area_suffix)
         return pairs
 
     def is_error_notified(self, tent_id: str) -> bool:
