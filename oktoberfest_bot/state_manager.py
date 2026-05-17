@@ -122,19 +122,16 @@ class StateManager:
         """Get mapping of available areas per date (only populated by API scrapers)."""
         return self.get_tent_state(tent_id).get('available_areas', {})
 
-    _HEARTBEAT_MAX_AREAS_PER_SLOT = 3
-
     def get_slot_pairs(self, tent_id: str) -> List[str]:
-        """Return human-readable "date [– time] [— areas: ...]" strings for every
-        slot tracked. Used by the heartbeat digest. Includes all dates the
-        scraper saw regardless of the alert filter. Areas per slot are capped
-        with "+N more" overflow to stay under Telegram's 4096-char limit.
+        """Return human-readable "date [– time] [— N Bereich(e)]" strings for every
+        slot tracked. Used by the heartbeat digest. Area counts only — full lists
+        live in the new-area alert messages. Keeps the daily digest under
+        Telegram's 4096-char limit even with 60+ tracked pairs.
         """
         state = self.get_tent_state(tent_id)
         dates = state.get('available_dates') or []
         times_by_date = state.get('available_times') or {}
         areas_by_date = state.get('available_areas') or {}
-        max_areas = self._HEARTBEAT_MAX_AREAS_PER_SLOT
 
         pairs: List[str] = []
         for date in dates:
@@ -146,17 +143,9 @@ class StateManager:
             areas = (areas_info or {}).get('areas') if areas_info else None
             area_suffix = ""
             if areas:
-                labels = [
-                    (a.get('text') or '').strip() for a in areas
-                    if (a.get('text') or '').strip()
-                ]
-                if labels:
-                    shown = labels[:max_areas]
-                    extra = len(labels) - len(shown)
-                    suffix = ", ".join(shown)
-                    if extra > 0:
-                        suffix += f" (+{extra} more)"
-                    area_suffix = "  —  " + suffix
+                n = sum(1 for a in areas if (a.get('text') or '').strip())
+                if n:
+                    area_suffix = f"  —  {n} Bereich" + ("" if n == 1 else "e")
             if times:
                 for t in times:
                     t_text = (t.get('text') or '').strip()
