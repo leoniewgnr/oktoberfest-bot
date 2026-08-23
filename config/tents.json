@@ -7,7 +7,7 @@
       "scraper_type": "api_fzos",
       "api_host": "schuetzen-api.festzelt-os.com",
       "company_id": "M5RN1H1",
-      "check_interval": 300,
+      "check_interval": 180,
       "enabled": true
     },
     {
@@ -17,7 +17,7 @@
       "scraper_type": "api_fzos",
       "api_host": "schottenhamel-api.festzelt-os.com",
       "company_id": "KDLWJDR",
-      "check_interval": 300,
+      "check_interval": 180,
       "enabled": true
     },
     {
@@ -27,7 +27,7 @@
       "scraper_type": "api_fzos",
       "api_host": "api.festzelt-os.com",
       "company_id": "FOSKUFW4711",
-      "check_interval": 300,
+      "check_interval": 180,
       "enabled": true
     },
     {
@@ -37,7 +37,7 @@
       "scraper_type": "form_select",
       "selector": "select[id=\"data.createBookingStepOneForm.date\"]",
       "time_selector": "select[id=\"data.createBookingStepOneForm.booking_list_id\"]",
-      "check_interval": 600,
+      "check_interval": 300,
       "enabled": true
     },
     {
@@ -47,7 +47,7 @@
       "scraper_type": "form_select",
       "selector": "select[id=\"data.createBookingStepOneForm.date\"]",
       "time_selector": "select[id=\"data.createBookingStepOneForm.booking_list_id\"]",
-      "check_interval": 600,
+      "check_interval": 300,
       "enabled": true
     },
     {
@@ -57,7 +57,7 @@
       "scraper_type": "form_select",
       "selector": "select[id=\"data.createBookingStepOneForm.date\"]",
       "time_selector": "select[id=\"data.createBookingStepOneForm.booking_list_id\"]",
-      "check_interval": 600,
+      "check_interval": 300,
       "enabled": true
     },
     {
@@ -67,7 +67,7 @@
       "scraper_type": "form_select",
       "selector": "select[id=\"data.createBookingStepOneForm.date\"]",
       "time_selector": "select[id=\"data.createBookingStepOneForm.booking_list_id\"]",
-      "check_interval": 600,
+      "check_interval": 300,
       "enabled": true
     },
     {
