@@ -21,19 +21,30 @@ class TelegramNotifier(BaseNotifier):
     def __init__(self, bot_token: str, chat_id: str):
         self.bot_token = bot_token
         self.chat_id = chat_id
+        self._last_status: Optional[int] = None
 
     def send_notification(self, message: str) -> Optional[int]:
         """Send a notification. Returns message_id on success, None on failure.
 
         Retries on 429 (honoring Telegram's retry_after), 5xx, and network errors.
-        Does NOT retry on other 4xx (won't help).
+        A 400 is retried exactly once as plain text: the usual cause is malformed
+        HTML in scraped text, and losing an alert to a stray '<' is unacceptable.
         """
+        message_id = self._post(message, parse_mode="HTML")
+        if message_id is None and self._last_status == 400:
+            logger.warning("Telegram rejected the HTML (400) — retrying as plain text")
+            message_id = self._post(message, parse_mode=None)
+        return message_id
+
+    def _post(self, message: str, parse_mode: Optional[str]) -> Optional[int]:
         url = f"https://api.telegram.org/bot{self.bot_token}/sendMessage"
         payload = {
             "chat_id": self.chat_id,
             "text": message,
-            "parse_mode": "HTML",
         }
+        if parse_mode:
+            payload["parse_mode"] = parse_mode
+        self._last_status = None
 
         for attempt in range(1, _MAX_ATTEMPTS + 1):
             try:
@@ -55,7 +66,9 @@ class TelegramNotifier(BaseNotifier):
                 except ValueError:
                     msg_id = None
                 logger.info("Telegram notification sent")
-                return msg_id
+                # 0 keeps the "delivered" answer truthy-by-not-being-None even if
+                # the body was unparseable; callers test `is not None`.
+                return msg_id if msg_id is not None else 0
 
             if response.status_code == 429:
                 retry_after = _parse_retry_after(response) or _BACKOFF_BASE ** attempt
@@ -68,6 +81,7 @@ class TelegramNotifier(BaseNotifier):
                 continue
 
             if 400 <= response.status_code < 500:
+                self._last_status = response.status_code
                 logger.error(
                     "Telegram returned %d (not retried): %s",
                     response.status_code, response.text[:300],

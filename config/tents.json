@@ -4,9 +4,30 @@
       "id": "schuetzenfestzelt",
       "name": "Schützenfestzelt",
       "url": "https://reservierung.schuetzenfestzelt.com/reservation",
-      "scraper_type": "form_select",
-      "selector": "select.form-select",
-      "check_interval": 120,
+      "scraper_type": "api_fzos",
+      "api_host": "schuetzen-api.festzelt-os.com",
+      "company_id": "M5RN1H1",
+      "check_interval": 300,
+      "enabled": true
+    },
+    {
+      "id": "schottenhamel",
+      "name": "Schottenhamel",
+      "url": "https://reservierung.festhalle-schottenhamel.de/reservation/",
+      "scraper_type": "api_fzos",
+      "api_host": "schottenhamel-api.festzelt-os.com",
+      "company_id": "KDLWJDR",
+      "check_interval": 300,
+      "enabled": true
+    },
+    {
+      "id": "kufflers-weinzelt",
+      "name": "Kufflers Weinzelt",
+      "url": "https://reservierung.weinzelt.com/reservation/",
+      "scraper_type": "api_fzos",
+      "api_host": "api.festzelt-os.com",
+      "company_id": "FOSKUFW4711",
+      "check_interval": 300,
       "enabled": true
     },
     {
@@ -16,16 +37,7 @@
       "scraper_type": "form_select",
       "selector": "select[id=\"data.createBookingStepOneForm.date\"]",
       "time_selector": "select[id=\"data.createBookingStepOneForm.booking_list_id\"]",
-      "check_interval": 120,
-      "enabled": true
-    },
-    {
-      "id": "schottenhamel",
-      "name": "Schottenhamel",
-      "url": "https://reservierung.festhalle-schottenhamel.de/reservation/",
-      "scraper_type": "form_select",
-      "selector": "select.form-select",
-      "check_interval": 120,
+      "check_interval": 600,
       "enabled": true
     },
     {
@@ -35,7 +47,7 @@
       "scraper_type": "form_select",
       "selector": "select[id=\"data.createBookingStepOneForm.date\"]",
       "time_selector": "select[id=\"data.createBookingStepOneForm.booking_list_id\"]",
-      "check_interval": 120,
+      "check_interval": 600,
       "enabled": true
     },
     {
@@ -45,7 +57,7 @@
       "scraper_type": "form_select",
       "selector": "select[id=\"data.createBookingStepOneForm.date\"]",
       "time_selector": "select[id=\"data.createBookingStepOneForm.booking_list_id\"]",
-      "check_interval": 120,
+      "check_interval": 600,
       "enabled": true
     },
     {
@@ -55,16 +67,55 @@
       "scraper_type": "form_select",
       "selector": "select[id=\"data.createBookingStepOneForm.date\"]",
       "time_selector": "select[id=\"data.createBookingStepOneForm.booking_list_id\"]",
-      "check_interval": 120,
+      "check_interval": 600,
       "enabled": true
     },
     {
-      "id": "kufflers-weinzelt",
-      "name": "Kufflers Weinzelt",
-      "url": "https://reservierung.weinzelt.com/reservation/",
-      "scraper_type": "form_select",
-      "selector": "select.form-select",
-      "check_interval": 120,
+      "id": "schottenhamel-muenchner-spezial",
+      "name": "Schottenhamel Münchner Spezial (Ankündigung)",
+      "url": "https://festhalle-schottenhamel.de/reservierung/muenchner-spezial/",
+      "scraper_type": "announcement",
+      "check_interval": 1800,
+      "enabled": true
+    },
+    {
+      "id": "schuetzen-muenchner-kontingent",
+      "name": "Schützenfestzelt Münchner Kontingent (Ankündigung)",
+      "url": "https://schuetzen-festzelt.de/de/muenchner-kontingent.html",
+      "scraper_type": "announcement",
+      "check_interval": 1800,
+      "enabled": true
+    },
+    {
+      "id": "schuetzen-reservierung-info",
+      "name": "Schützenfestzelt Reservierung (Ankündigung)",
+      "url": "https://schuetzen-festzelt.de/de/reservierung.html",
+      "scraper_type": "announcement",
+      "check_interval": 1800,
+      "enabled": true
+    },
+    {
+      "id": "hacker-fragen",
+      "name": "Hacker-Festzelt FAQ (Ankündigung)",
+      "url": "https://hacker-festzelt.de/fragen/",
+      "scraper_type": "announcement",
+      "check_interval": 1800,
+      "enabled": true
+    },
+    {
+      "id": "hacker-muenchner-kontingent-buchung",
+      "name": "Hacker-Festzelt Münchner Kontingent (Buchungsroute)",
+      "url": "https://reservierung.hacker-festzelt.de/real-munich-reservation/",
+      "scraper_type": "announcement",
+      "check_interval": 1800,
+      "enabled": true
+    },
+    {
+      "id": "ochsenbraterei-muenchner-kontingent-buchung",
+      "name": "Ochsenbraterei Münchner Kontingent (Buchungsroute)",
+      "url": "https://reservierung.ochsenbraterei.de/muenchen-kontingent",
+      "scraper_type": "announcement",
+      "check_interval": 1800,
       "enabled": true
     }
   ]

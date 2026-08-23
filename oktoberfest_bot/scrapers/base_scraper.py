@@ -4,6 +4,16 @@ from abc import ABC, abstractmethod
 from typing import Dict, List, Any, Optional
 from datetime import datetime
 
+# Contactable UA for the plain-HTTP JSON API calls.
+HONEST_USER_AGENT = (
+    "oktoberfest-watcher/2.0 (personal table watcher; +mailto:leonie@lumeraenergy.de)"
+)
+# A real headless Chromium sends a real Chrome UA — no fingerprint impersonation.
+BROWSER_USER_AGENT = (
+    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) "
+    "Chrome/127.0.0.0 Safari/537.36"
+)
+
 
 class ScrapeResult:
     """Result from a scraping operation"""
@@ -16,6 +26,10 @@ class ScrapeResult:
         available_times: Optional[Dict[str, Dict[str, Any]]] = None,
         available_areas: Optional[Dict[str, Dict[str, Any]]] = None,
         error: str = None,
+        slots: Optional[List[Dict[str, Any]]] = None,
+        blocked: bool = False,
+        status_code: Optional[int] = None,
+        empty_state: bool = False,
     ):
         self.success = success
         self.dates_available = dates_available
@@ -28,23 +42,59 @@ class ScrapeResult:
         # available_times). Each entry: {"date_text": str, "areas": [{"value", "text"}, ...]}
         self.available_areas = available_areas or {}
         self.error = error
+        # Flat per-slot view used for re-release detection (a slot whose area
+        # set or state changes without any new date/time appearing).
+        self.slots = slots or []
+        # blocked = "we were refused" (403 / Cloudflare challenge / WAF page),
+        # which is different from success=False for a parse error.
+        self.blocked = blocked
+        self.status_code = status_code
+        # empty_state = page loaded fine and genuinely published nothing, as
+        # opposed to a selector that silently matched nothing.
+        self.empty_state = empty_state
         self.timestamp = datetime.now().isoformat()
 
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary"""
-        result: Dict[str, Any] = {
-            'success': self.success,
-            'timestamp': self.timestamp,
-        }
-        if self.success:
-            result['dates_available'] = self.dates_available
-            result['available_dates'] = self.available_dates
-            result['available_times'] = self.available_times
-            result['available_areas'] = self.available_areas
-        else:
-            result['error'] = self.error
-        return result
+    def build_slots(self) -> List[Dict[str, Any]]:
+        """Flatten available_dates/times/areas into slots unless the scraper
+        already supplied them. Caches the result on the instance."""
+        if self.slots:
+            return self.slots
 
+        slots: List[Dict[str, Any]] = []
+        for date in self.available_dates:
+            date_value = str(date.get('value', ''))
+            date_text = date.get('text') or date_value
+            state = date.get('state') or ''
+            areas = [
+                a.get('text') or a.get('value')
+                for a in (self.available_areas.get(date_value) or {}).get('areas') or []
+            ]
+            times = (self.available_times.get(date_value) or {}).get('times') or []
+            if times:
+                for t in times:
+                    time_value = str(t.get('value', ''))
+                    slots.append({
+                        'key': f"{date_value}|{time_value}",
+                        'date_value': date_value,
+                        'time_value': time_value,
+                        'date_text': date_text,
+                        'time_text': t.get('text') or time_value,
+                        'state': state,
+                        'areas': areas,
+                    })
+            else:
+                slots.append({
+                    'key': date_value,
+                    'date_value': date_value,
+                    'time_value': '',
+                    'date_text': date_text,
+                    'time_text': '',
+                    'state': state,
+                    'areas': areas,
+                })
+
+        self.slots = slots
+        return slots
 
 class BaseScraper(ABC):
     """Abstract base class for tent reservation scrapers"""
@@ -59,11 +109,3 @@ class BaseScraper(ABC):
     async def check_availability(self) -> ScrapeResult:
         """Check for available reservation dates"""
         pass
-
-    def get_tent_info(self) -> Dict[str, str]:
-        """Get basic tent information"""
-        return {
-            'id': self.tent_id,
-            'name': self.tent_name,
-            'url': self.url,
-        }
