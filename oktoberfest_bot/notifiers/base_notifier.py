@@ -179,17 +179,12 @@ class BaseNotifier(ABC):
         """Send a notification. Non-None means Telegram accepted it."""
         raise NotImplementedError
 
-    def _send(self, message: str, reaction: Optional[str] = None) -> bool:
+    def _send(self, message: str) -> bool:
         """Send one bounded message. False means it never arrived."""
-        message_id = self.send_notification(_cap(message))
-        if message_id is None:
-            return False
-        if reaction:
-            self._maybe_react(message_id, reaction)
-        return True
+        return self.send_notification(_cap(message)) is not None
 
     def _send_listing(
-        self, header: str, lines: List[str], footer: str, reaction: Optional[str] = None
+        self, header: str, lines: List[str], footer: str
     ) -> bool:
         """Send a slot listing across as many messages as it takes.
 
@@ -201,20 +196,9 @@ class BaseNotifier(ABC):
         for index, group in enumerate(groups, start=1):
             label = f"  (part {index}/{len(groups)})" if len(groups) > 1 else ""
             body = "\n".join(group)
-            if not self._send(f"{header}{label}\n\n{body}\n\n{footer}", reaction):
+            if not self._send(f"{header}{label}\n\n{body}\n\n{footer}"):
                 delivered = False
         return delivered
-
-    def _maybe_react(self, message_id: Any, emoji: str):
-        """Best-effort reaction helper for notifiers that support it."""
-        if not message_id:
-            return
-        react_fn = getattr(self, 'react_to_message', None)
-        if callable(react_fn):
-            try:
-                react_fn(message_id, emoji)
-            except Exception:
-                pass
 
     def send_dates_available(
         self,
@@ -240,7 +224,7 @@ class BaseNotifier(ABC):
         )
         header += f"\n\nFound {len(filtered)} available option(s):"
         lines = [_format_slot_line(d, areas_by_date_value) for d in filtered]
-        return self._send_listing(header, lines, _booking_footer(tent_url), "🍺")
+        return self._send_listing(header, lines, _booking_footer(tent_url))
 
     def send_new_dates_added(
         self,
@@ -265,7 +249,7 @@ class BaseNotifier(ABC):
         )
         header += f"\n\nNewly added option(s) ({len(filtered)}):"
         lines = [_format_slot_line(d, areas_by_date_value) for d in filtered]
-        return self._send_listing(header, lines, _booking_footer(tent_url), "📅")
+        return self._send_listing(header, lines, _booking_footer(tent_url))
 
     def send_times_available(
         self,
@@ -320,7 +304,7 @@ class BaseNotifier(ABC):
             f"{times_text}\n\n"
             f"{_booking_footer(tent_url, slot_key)}"
         )
-        return self._send(message, "⏰")
+        return self._send(message)
 
     def send_areas_available(
         self,
@@ -360,7 +344,7 @@ class BaseNotifier(ABC):
             f"{areas_text}\n\n"
             f"{_booking_footer(tent_url, slot_key)}"
         )
-        return self._send(message, "📍")
+        return self._send(message)
 
     def send_slot_returned(
         self,
@@ -401,7 +385,7 @@ class BaseNotifier(ABC):
             f"{gone_line}\n"
             f"{_booking_footer(tent_url, slot_key)}"
         )
-        return self._send(message, "♻️")
+        return self._send(message)
 
     def send_announcement_changed(
         self,
@@ -449,7 +433,7 @@ class BaseNotifier(ABC):
                 lines.append(f"…and {hidden} more changed line(s)")
 
         lines += ["", f"🔗 {_esc(url)}"]
-        return self._send("\n".join(lines), "📣")
+        return self._send("\n".join(lines))
 
     def send_dates_unavailable(self, tent_name: str) -> bool:
         """Send notification when dates become unavailable"""
@@ -515,7 +499,7 @@ class BaseNotifier(ABC):
             "",
             "Check the box: <code>systemctl status oktoberfest-bot</code>",
         ]
-        return self._send("\n".join(lines), "🚨")
+        return self._send("\n".join(lines))
 
     def send_heartbeat(
         self,

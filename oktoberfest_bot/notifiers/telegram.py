@@ -2,7 +2,7 @@
 
 import logging
 import time
-from typing import Any, Optional
+from typing import Optional
 
 import requests
 
@@ -99,21 +99,6 @@ class TelegramNotifier(BaseNotifier):
 
         logger.error("Telegram notification dropped after %d attempts", _MAX_ATTEMPTS)
         return None
-
-    def react_to_message(self, message_id: Any, emoji: str):
-        """Best-effort: react to a Telegram message (requires Bot API support)."""
-        try:
-            url = f"https://api.telegram.org/bot{self.bot_token}/setMessageReaction"
-            payload = {
-                "chat_id": self.chat_id,
-                "message_id": int(message_id),
-                "reaction": [{"type": "emoji", "emoji": emoji}],
-            }
-            response = requests.post(url, json=payload, timeout=_REQUEST_TIMEOUT)
-            if response.status_code != 200:
-                logger.info("Could not add reaction: %s", response.text[:300])
-        except Exception as e:
-            logger.info("Could not add reaction: %s", e)
 
 
 def _parse_retry_after(response) -> Optional[float]:
