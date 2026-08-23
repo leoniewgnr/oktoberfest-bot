@@ -46,6 +46,10 @@ class ConfigLoader:
         config.setdefault('blind_realert_interval_seconds', 1800)
         config.setdefault('max_slot_age_for_display_seconds', 3600)
         config.setdefault('healthcheck_url', '')
+        # Cloudflare challenges this box's datacenter ASN for the booking hosts but
+        # not the plain announcement pages, so the two target classes run on
+        # different machines off one shared tents.json. Empty = run everything.
+        config.setdefault('enabled_scraper_types', [])
         return config
 
     def _load_tents(self) -> List[Dict[str, Any]]:
@@ -65,6 +69,13 @@ class ConfigLoader:
 
         # Filter only enabled tents
         enabled_tents = [tent for tent in tents if tent.get('enabled', True)]
+
+        allowed = self.config.get('enabled_scraper_types') or []
+        if allowed:
+            enabled_tents = [
+                tent for tent in enabled_tents
+                if tent.get('scraper_type') in allowed
+            ]
 
         if not enabled_tents:
             print("Error: No enabled tents found")

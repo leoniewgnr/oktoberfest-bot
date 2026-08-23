@@ -179,3 +179,48 @@ def test_escalating_interval_doubles_then_caps():
     assert escalating_interval(HALF_HOUR, 1) == HALF_HOUR
     assert escalating_interval(HALF_HOUR, 2) == 2 * HALF_HOUR
     assert escalating_interval(HALF_HOUR, 99) == MAX_REALERT_INTERVAL_S
+
+
+def test_ping_throttle_never_delays_a_status_change(monkeypatch):
+    """Steady repeats are throttled, but success<->failure must go out at once:
+    a delayed transition is a delayed alarm."""
+    from oktoberfest_bot import health
+
+    sent = []
+    monkeypatch.setattr(
+        health.requests, "get", lambda url, **kw: sent.append(url) or None
+    )
+    clock = {"t": 1000.0}
+    monkeypatch.setattr(health.time, "monotonic", lambda: clock["t"])
+
+    reporter = health.HealthReporter("https://hc-ping.com/uuid")
+
+    reporter.ping_success()
+    assert len(sent) == 1
+
+    # Unchanged status inside the window is dropped.
+    clock["t"] += 60
+    reporter.ping_success()
+    assert len(sent) == 1
+
+    # A change is sent immediately, however recent the last ping.
+    reporter.ping_failure("blind")
+    assert len(sent) == 2 and sent[-1].endswith("/fail")
+
+    # And back again, still inside the window.
+    reporter.ping_success()
+    assert len(sent) == 3 and not sent[-1].endswith("/fail")
+
+    # Steady state resumes after the interval elapses.
+    clock["t"] += health._PING_MIN_INTERVAL_S + 1
+    reporter.ping_success()
+    assert len(sent) == 4
+
+
+def test_ping_disabled_without_url(monkeypatch):
+    from oktoberfest_bot import health
+
+    sent = []
+    monkeypatch.setattr(health.requests, "get", lambda url, **kw: sent.append(url))
+    health.HealthReporter("").ping_failure("blind")
+    assert sent == []

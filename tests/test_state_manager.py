@@ -206,3 +206,35 @@ def test_non_dict_tent_entry_does_not_raise(sm):
     sm.state["hacker"] = None
     assert sm.get_tent_state("hacker")["seen_slots"] == {}
     assert sm.seconds_since_success("hacker") is None
+
+
+def test_enabled_scraper_types_splits_targets_across_hosts(tmp_path):
+    """One tents.json, two machines: the box that Cloudflare challenges runs only
+    the announcement pages, so a typo cannot silently drop a booking target."""
+    import json
+    from oktoberfest_bot.config_loader import ConfigLoader
+
+    tents = {"tents": [
+        {"id": "a", "name": "A", "url": "https://x/", "scraper_type": "announcement", "enabled": True},
+        {"id": "b", "name": "B", "url": "https://y/", "scraper_type": "api_fzos",
+         "api_host": "h", "company_id": "C", "enabled": True},
+        {"id": "c", "name": "C", "url": "https://z/", "scraper_type": "form_select",
+         "selector": "select", "enabled": True},
+    ]}
+    tents_path = tmp_path / "tents.json"
+    tents_path.write_text(json.dumps(tents))
+
+    def loader(allowed):
+        cfg = {"telegram_bot_token": "t", "telegram_chat_id": "c",
+               "state_file": str(tmp_path / "s.json"), "log_file": str(tmp_path / "l.log")}
+        if allowed is not None:
+            cfg["enabled_scraper_types"] = allowed
+        p = tmp_path / f"config-{allowed}.json"
+        p.write_text(json.dumps(cfg))
+        return ConfigLoader(str(p), str(tents_path))
+
+    assert [t["id"] for t in loader(["announcement"]).get_tents()] == ["a"]
+    assert [t["id"] for t in loader(["api_fzos", "form_select"]).get_tents()] == ["b", "c"]
+    # Absent or empty means "run everything", so an unset field never hides a target.
+    assert len(loader(None).get_tents()) == 3
+    assert len(loader([]).get_tents()) == 3

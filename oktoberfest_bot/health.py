@@ -11,6 +11,7 @@ blind — it can never latch to silence.
 from __future__ import annotations
 
 import logging
+import time
 from typing import Dict, List, Optional
 
 import requests
@@ -22,6 +23,12 @@ logger = logging.getLogger(__name__)
 _PING_TIMEOUT = 10
 # healthchecks.io truncates the ping body anyway; keep the request small.
 _MAX_BODY_CHARS = 2000
+
+# The blindness loop evaluates every 60 s, but the external switch only needs a
+# steady heartbeat — a status *change* is always sent immediately, so throttling
+# the unchanged repeats costs no detection latency and drops 1440 pings/day to
+# roughly 288. Keep the check's period comfortably above this.
+_PING_MIN_INTERVAL_S = 300.0
 
 # A target that has been dead for days must still be reported, but not at the
 # fresh-outage cadence: a channel she has learned to mute is a missed slot.
@@ -48,6 +55,8 @@ class HealthReporter:
     def __init__(self, healthcheck_url: Optional[str], logger: logging.Logger = logger):
         self.url = (healthcheck_url or "").strip().rstrip("/") or None
         self.logger = logger
+        self._last_path: Optional[str] = None
+        self._last_sent_at = 0.0
         if self.url is None:
             self.logger.warning(
                 "EXTERNAL DEAD-MAN'S SWITCH DISABLED (healthcheck_url is empty). "
@@ -74,6 +83,14 @@ class HealthReporter:
     def _ping(self, path: str, body: str) -> None:
         if self.url is None:
             return
+        # /log is a note, not a status, so it never affects the throttle.
+        if path != "/log":
+            now = time.monotonic()
+            changed = path != self._last_path
+            if not changed and now - self._last_sent_at < _PING_MIN_INTERVAL_S:
+                return
+            self._last_path = path
+            self._last_sent_at = now
         url = self.url + path
         try:
             requests.get(
