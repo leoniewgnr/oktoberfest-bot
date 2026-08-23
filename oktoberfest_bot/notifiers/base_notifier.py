@@ -1,15 +1,71 @@
-"""Base notifier interface for sending notifications"""
+"""Base notifier interface for sending notifications
 
+Every send_* returns True only when everything it had to say actually reached
+Telegram (or there was nothing to say). The orchestrator commits slot state on
+that answer, so a dropped message means "re-alert next cycle" instead of
+"silently forget this slot".
+"""
+
+import html
 from abc import ABC, abstractmethod
 from datetime import datetime
-from typing import Any, Dict, List, Optional
+from typing import Any, Dict, Iterable, List, Optional
 
-from ..filters import should_alert
+from ..filters import is_weekend_evening, parse_weekday, should_alert
 
 try:
     from zoneinfo import ZoneInfo
 except Exception:  # pragma: no cover
     ZoneInfo = None  # type: ignore
+
+_TELEGRAM_LIMIT = 4096
+_MAX_SLOTS_PER_TENT = 20
+_MAX_DIFF_LINES = 15
+
+
+def _esc(value: Any) -> str:
+    """Telegram-HTML-escape any scraped or remote text before it goes in a message."""
+    return html.escape(str(value if value is not None else ""))
+
+
+def _esc_cut(value: Any, limit: int) -> str:
+    """Truncate first, escape second — slicing escaped text splits `&lt;` in half
+    and Telegram answers 400, which used to drop the whole alarm."""
+    return _esc(str(value if value is not None else "")[:limit])
+
+
+def _cap(message: str) -> str:
+    """Trim to Telegram's limit on a line boundary, so no HTML tag is cut in half.
+
+    Only for messages whose length is bounded by construction — anything holding
+    a list of slots is chunked instead, because dropping a line drops a slot.
+    """
+    if len(message) <= _TELEGRAM_LIMIT:
+        return message
+    head = message[: _TELEGRAM_LIMIT - 40]
+    cut = head.rfind("\n")
+    if cut > 0:
+        head = head[:cut]
+    return head + "\n… (truncated)"
+
+
+def _chunk_lines(lines: List[str], overhead: int) -> List[List[str]]:
+    """Group lines so each group plus overhead fits one Telegram message."""
+    budget = max(200, _TELEGRAM_LIMIT - overhead)
+    groups: List[List[str]] = []
+    current: List[str] = []
+    size = 0
+    for line in lines:
+        cost = len(line) + 1
+        if current and size + cost > budget:
+            groups.append(current)
+            current = []
+            size = 0
+        current.append(line)
+        size += cost
+    if current:
+        groups.append(current)
+    return groups or [[]]
 
 
 def _fmt_iso_local(iso: Optional[str]) -> str:
@@ -28,64 +84,130 @@ def _fmt_iso_local(iso: Optional[str]) -> str:
     return dt.strftime("%Y-%m-%d %H:%M %Z").strip()
 
 
+def _fmt_age(seconds: Optional[float]) -> str:
+    """Age as "34 s" / "4 min" / "3 h" / "29 days"; "never" for a missing timestamp."""
+    if seconds is None:
+        return "never"
+    seconds = max(0.0, float(seconds))
+    if seconds < 90:
+        return f"{int(seconds)} s"
+    minutes = seconds / 60.0
+    if minutes < 90:
+        return f"{int(round(minutes))} min"
+    hours = minutes / 60.0
+    if hours < 36:
+        return f"{int(round(hours))} h"
+    return f"{int(round(hours / 24.0))} days"
+
+
+_is_weekend_evening = is_weekend_evening
+
+
+def _weekend_header(tent_name: str, calm: str, weekend: bool) -> str:
+    """Loud, unmistakable header for weekend evenings; the calm one otherwise."""
+    if weekend:
+        return f"🔴🍺 <b>WEEKEND EVENING - {_esc(tent_name.upper())} - BOOK NOW</b> 🍺🔴"
+    return calm
+
+
+def _booking_footer(tent_url: str, slot_key: Optional[str] = None) -> str:
+    """Neither tent platform exposes a per-slot URL, so the booking page is the
+    most specific link there is and the slot key goes in as matchable text."""
+    footer = f"🔗 Book now: {_esc(tent_url)}"
+    if slot_key:
+        footer += f"\nSlot-ID: <code>{_esc(slot_key)}</code>"
+    return footer
+
+
 def _format_slot_line(
     date: Dict,
     areas_by_date_value: Optional[Dict[str, List[Dict]]] = None,
+    extra_text: str = "",
 ) -> str:
-    """Render one slot line for a notification body, appending Bereiche when
-    available. Uses Telegram HTML escaping on user-supplied text."""
-    import html as _html
+    """One slot line: weekend evenings marked, Bereiche inlined when known, and
+    the slot key appended so she can match it in the booking picker."""
+    text = date.get("text", "")
+    marker = "🔴 " if _is_weekend_evening(str(text), extra_text) else ""
+    line = f"• {marker}{_esc(text)}"
 
-    text = _html.escape(str(date.get("text", "")))
-    line = f"• {text}"
-    if not areas_by_date_value:
-        return line
     value = date.get("value")
-    areas = areas_by_date_value.get(value) if value is not None else None
-    if not areas:
-        return line
+    areas = (areas_by_date_value or {}).get(value) if value is not None else None
     labels = [
         (a.get("text") or "").strip()
-        for a in areas
+        for a in (areas or [])
         if (a.get("text") or "").strip()
     ]
-    if not labels:
-        return line
-    return line + "  —  " + _html.escape(", ".join(labels))
+    if labels:
+        line += "  —  " + _esc(", ".join(labels))
+    if value:
+        line += f"  <code>{_esc(value)}</code>"
+    return line
+
+
+def _urgency_rank(text: str, extra_text: str = "") -> int:
+    """0 = Fri/Sat/Sun evening, 1 = weekday we could not parse, 2 = the rest.
+
+    The unparseable class is the deliberate safety net, so it must never sort
+    below known weekday noise.
+    """
+    combined = " ".join(t for t in (text, extra_text) if t).strip()
+    if _is_weekend_evening(combined):
+        return 0
+    return 1 if parse_weekday(combined) is None else 2
+
+
+def _weekend_first(items: Iterable[Dict], extra_text: str = "") -> List[Dict]:
+    """Stable sort putting Fri/Sat/Sun evening slots first, then the slots whose
+    weekday we could not determine."""
+    return sorted(items, key=lambda d: _urgency_rank(str(d.get("text", "")), extra_text))
 
 
 class BaseNotifier(ABC):
     """Abstract base class for notification services"""
 
-    def _now_local(self) -> datetime:
-        """Best-effort local time for notification policies."""
-        if ZoneInfo is None:
-            return datetime.utcnow()
-        try:
-            return datetime.now(ZoneInfo('Europe/Berlin'))
-        except Exception:
-            return datetime.utcnow()
-
     def _should_suppress_midday(self, time_text: str, date_text: str = "") -> bool:
-        """Return True if this slot should be suppressed from notifications.
+        """True only for Mon–Thu daytime slots (Mittag, Vormittag, Frühschoppen).
 
-        Policy (Leonie): suppress ONLY Mon–Fri Mittag. Alert on all Abend (any
-        day), Sa/So Mittag, and anything unparseable. Uses the shared filter.
-
-        Backwards-compatible signature: existing callers that pass only the
-        time text still work; for time-slot tents, callers should also pass
-        date_text so the weekday rule applies.
+        The weekday is parsed here and handed to the filter explicitly, so
+        Fri/Sat/Sun — and any date we cannot parse — can never be suppressed.
         """
-        return not should_alert(date_text or "", time_text or "")
+        combined = f"{date_text or ''} {time_text or ''}".strip()
+        return not should_alert(date_text or "", time_text or "", parse_weekday(combined))
 
     @abstractmethod
     def send_notification(self, message: str) -> Any:
-        """Send a notification message."""
+        """Send a notification. Non-None means Telegram accepted it."""
         raise NotImplementedError
+
+    def _send(self, message: str, reaction: Optional[str] = None) -> bool:
+        """Send one bounded message. False means it never arrived."""
+        message_id = self.send_notification(_cap(message))
+        if message_id is None:
+            return False
+        if reaction:
+            self._maybe_react(message_id, reaction)
+        return True
+
+    def _send_listing(
+        self, header: str, lines: List[str], footer: str, reaction: Optional[str] = None
+    ) -> bool:
+        """Send a slot listing across as many messages as it takes.
+
+        Truncating a listing deletes slot lines, and the truncated tail is exactly
+        where the least-classifiable slots sit — so it is chunked, never cut.
+        """
+        groups = _chunk_lines(lines, len(header) + len(footer) + 80)
+        delivered = True
+        for index, group in enumerate(groups, start=1):
+            label = f"  (part {index}/{len(groups)})" if len(groups) > 1 else ""
+            body = "\n".join(group)
+            if not self._send(f"{header}{label}\n\n{body}\n\n{footer}", reaction):
+                delivered = False
+        return delivered
 
     def _maybe_react(self, message_id: Any, emoji: str):
         """Best-effort reaction helper for notifiers that support it."""
-        if message_id is None:
+        if not message_id:
             return
         react_fn = getattr(self, 'react_to_message', None)
         if callable(react_fn):
@@ -94,49 +216,31 @@ class BaseNotifier(ABC):
             except Exception:
                 pass
 
-    def send_startup_notification(self, tent_names: List[str], check_interval: int):
-        """Send notification when monitoring starts"""
-        tents_list = "\n".join([f"• {name}" for name in tent_names])
-        message = (
-            "🚀 <b>Oktoberfest Monitor Started</b>\n\n"
-            f"Monitoring {len(tent_names)} tent(s):\n"
-            f"{tents_list}\n\n"
-            f"Check interval: {check_interval} seconds"
-        )
-        self.send_notification(message)
-
     def send_dates_available(
         self,
         tent_name: str,
         tent_url: str,
         available_dates: List[Dict],
         areas_by_date_value: Dict[str, List[Dict]] = None,
-    ):
-        """Send notification when dates become available.
-
-        Note: This should communicate the *reservation slot* (as shown on the website),
-        i.e., date+time if the site exposes it in the option text.
-        If the scraper supplies area data per date (FZOS API tents), those are
-        inlined under each slot line.
-        """
-        filtered = [d for d in available_dates if should_alert(d.get('text', ''))]
+    ) -> bool:
+        """Alert on the first availability seen for a tent. The slot text is what
+        the site shows, i.e. date + time when the site exposes both."""
+        filtered = _weekend_first(
+            d for d in available_dates
+            if not self._should_suppress_midday("", d.get('text', ''))
+        )
         if not filtered:
-            return
+            return True
 
-        import html
-
-        dates_text = "\n".join(
-            _format_slot_line(d, areas_by_date_value) for d in filtered
+        weekend = any(_is_weekend_evening(str(d.get('text', ''))) for d in filtered)
+        header = _weekend_header(
+            tent_name,
+            f"🍺🎉 <b>{_esc(tent_name.upper())} - TABLES AVAILABLE!</b> 🎉🍺",
+            weekend,
         )
-
-        message = (
-            f"🍺🎉 <b>{tent_name.upper()} - TABLES AVAILABLE!</b> 🎉🍺\n\n"
-            f"Found {len(filtered)} available option(s):\n"
-            f"{dates_text}\n\n"
-            f"🔗 Book now: {tent_url}"
-        )
-        message_id = self.send_notification(message)
-        self._maybe_react(message_id, "🍺")
+        header += f"\n\nFound {len(filtered)} available option(s):"
+        lines = [_format_slot_line(d, areas_by_date_value) for d in filtered]
+        return self._send_listing(header, lines, _booking_footer(tent_url), "🍺")
 
     def send_new_dates_added(
         self,
@@ -144,26 +248,24 @@ class BaseNotifier(ABC):
         tent_url: str,
         new_dates: List[Dict],
         areas_by_date_value: Dict[str, List[Dict]] = None,
-    ):
+    ) -> bool:
         """Send notification when additional options are added while availability already existed."""
-        filtered = [d for d in new_dates if should_alert(d.get('text', ''))]
+        filtered = _weekend_first(
+            d for d in new_dates
+            if not self._should_suppress_midday("", d.get('text', ''))
+        )
         if not filtered:
-            return
+            return True
 
-        import html
-
-        dates_text = "\n".join(
-            _format_slot_line(d, areas_by_date_value) for d in filtered
+        weekend = any(_is_weekend_evening(str(d.get('text', ''))) for d in filtered)
+        header = _weekend_header(
+            tent_name,
+            f"🆕📅 <b>{_esc(tent_name.upper())} - NEW OPTIONS ADDED!</b> 📅🆕",
+            weekend,
         )
-
-        message = (
-            f"🆕📅 <b>{tent_name.upper()} - NEW OPTIONS ADDED!</b> 📅🆕\n\n"
-            f"Newly added option(s) ({len(filtered)}):\n"
-            f"{dates_text}\n\n"
-            f"🔗 Book now: {tent_url}"
-        )
-        message_id = self.send_notification(message)
-        self._maybe_react(message_id, "📅")
+        header += f"\n\nNewly added option(s) ({len(filtered)}):"
+        lines = [_format_slot_line(d, areas_by_date_value) for d in filtered]
+        return self._send_listing(header, lines, _booking_footer(tent_url), "📅")
 
     def send_times_available(
         self,
@@ -172,21 +274,28 @@ class BaseNotifier(ABC):
         date_text: str,
         new_times: List[Dict],
         current_areas: List[Dict] = None,
-    ):
+        slot_key: Optional[str] = None,
+    ) -> bool:
         """Send notification when new time slots become available for an
         already-available date. Includes the currently-tracked Bereich list
         for that date if the scraper provides it (API tents)."""
-        filtered = [
-            t for t in new_times
-            if not self._should_suppress_midday(t.get('text', ''), date_text)
-        ]
+        filtered = _weekend_first(
+            (t for t in new_times
+             if not self._should_suppress_midday(t.get('text', ''), date_text)),
+            date_text,
+        )
         if not filtered:
-            return
+            return True
 
-        import html
-
-        safe_date_text = html.escape(str(date_text or ""))
-        times_text = "\n".join([f"• {html.escape(str(t.get('text', '')))}" for t in filtered])
+        weekend = any(
+            _is_weekend_evening(date_text, str(t.get('text', ''))) for t in filtered
+        )
+        times_text = "\n".join(
+            "• "
+            + ("🔴 " if _is_weekend_evening(date_text, str(t.get('text', ''))) else "")
+            + _esc(t.get('text', ''))
+            for t in filtered
+        )
 
         area_line = ""
         if current_areas:
@@ -196,20 +305,22 @@ class BaseNotifier(ABC):
                 if (a.get('text') or '').strip()
             ]
             if area_labels:
-                area_line = (
-                    f"Bereiche: <b>{html.escape(', '.join(area_labels))}</b>\n"
-                )
+                area_line = f"Bereiche: <b>{_esc(', '.join(area_labels))}</b>\n"
 
+        header = _weekend_header(
+            tent_name,
+            f"⏰🎉 <b>{_esc(tent_name.upper())} - NEW TIME SLOTS!</b> 🎉⏰",
+            weekend,
+        )
         message = (
-            f"⏰🎉 <b>{tent_name.upper()} - NEW TIME SLOTS!</b> 🎉⏰\n\n"
-            f"Day: <b>{safe_date_text}</b>\n"
+            f"{header}\n\n"
+            f"Day: <b>{_esc(date_text)}</b>\n"
             f"{area_line}"
             f"New time option(s) found ({len(filtered)}):\n"
             f"{times_text}\n\n"
-            f"🔗 Book now: {tent_url}"
+            f"{_booking_footer(tent_url, slot_key)}"
         )
-        message_id = self.send_notification(message)
-        self._maybe_react(message_id, "⏰")
+        return self._send(message, "⏰")
 
     def send_areas_available(
         self,
@@ -218,128 +329,266 @@ class BaseNotifier(ABC):
         date_text: str,
         time_text: str,
         new_areas: List[Dict],
-    ):
-        """Send notification when new Bereich(e) appear for an
-        already-tracked slot. Only the API scraper produces area data."""
+        slot_key: Optional[str] = None,
+    ) -> bool:
+        """A Bereich appeared inside an already-published slot. On the API tents
+        that is the only visible trace of a Storno freeing a table."""
         if not new_areas:
-            return
-        # Apply the same shift filter as send_times_available — don't notify
-        # about new areas appearing on a slot whose shift the user wants to
-        # ignore (e.g. Mittag).
+            return True
         if self._should_suppress_midday(time_text or "", date_text):
-            return
+            return True
 
-        import html
-
-        safe_date_text = html.escape(str(date_text or ""))
-        safe_time_text = html.escape(str(time_text or ""))
+        weekend = _is_weekend_evening(date_text, time_text)
         areas_text = "\n".join(
-            f"• {html.escape(str(a.get('text', '')))}" for a in new_areas
+            f"• {_esc(a.get('text', ''))}" for a in new_areas
         )
         slot_line = (
-            f"Day: <b>{safe_date_text}</b> – <b>{safe_time_text}</b>"
-            if safe_time_text
-            else f"Day: <b>{safe_date_text}</b>"
+            f"Day: <b>{_esc(date_text)}</b> – <b>{_esc(time_text)}</b>"
+            if time_text
+            else f"Day: <b>{_esc(date_text)}</b>"
         )
+        header = _weekend_header(
+            tent_name,
+            f"📍🆕 <b>{_esc(tent_name.upper())} - NEW BEREICH(E)!</b> 🆕📍",
+            weekend,
+        )
+
         message = (
-            f"📍🆕 <b>{tent_name.upper()} - NEW BEREICH(E)!</b> 🆕📍\n\n"
+            f"{header}\n\n"
             f"{slot_line}\n"
             f"New area(s) ({len(new_areas)}):\n"
             f"{areas_text}\n\n"
-            f"🔗 Book now: {tent_url}"
+            f"{_booking_footer(tent_url, slot_key)}"
         )
-        message_id = self.send_notification(message)
-        self._maybe_react(message_id, "📍")
+        return self._send(message, "📍")
 
-    def send_dates_unavailable(self, tent_name: str):
+    def send_slot_returned(
+        self,
+        tent_name: str,
+        tent_url: str,
+        date_text: str,
+        time_text: str = "",
+        slot_key: Optional[str] = None,
+        gone_for_seconds: Optional[float] = None,
+    ) -> bool:
+        """A slot that had vanished is back: a Storno, not a new publication.
+        These get taken within minutes, so it is worded as urgently as a new one."""
+        if self._should_suppress_midday(time_text or "", date_text):
+            return True
+
+        weekend = _is_weekend_evening(date_text, time_text)
+        header = (
+            f"🔴♻️ <b>WEEKEND EVENING FREED UP - {_esc(tent_name.upper())} - BOOK NOW</b> ♻️🔴"
+            if weekend
+            else f"♻️🍺 <b>{_esc(tent_name.upper())} - TABLE FREED UP</b> 🍺♻️"
+        )
+        slot_line = (
+            f"Slot: <b>{_esc(date_text)}</b> – <b>{_esc(time_text)}</b>"
+            if time_text
+            else f"Slot: <b>{_esc(date_text)}</b>"
+        )
+        gone_line = (
+            f"Was gone for {_fmt_age(gone_for_seconds)} before reappearing.\n"
+            if gone_for_seconds is not None
+            else ""
+        )
+
+        message = (
+            f"{header}\n\n"
+            "This slot had disappeared and is bookable again — somebody cancelled "
+            "(Storno). It is not a new publication.\n\n"
+            f"{slot_line}\n"
+            f"{gone_line}\n"
+            f"{_booking_footer(tent_url, slot_key)}"
+        )
+        return self._send(message, "♻️")
+
+    def send_announcement_changed(
+        self,
+        name: str,
+        url: str,
+        keywords_found: List[str],
+        diff_lines: List[str],
+        baseline: bool = False,
+    ) -> bool:
+        """A watched marketing page changed — or was read for the first time.
+
+        Offline Münchner-Kontingent windows are announced here in prose only,
+        often weeks before any booking route, so the very first read is reported
+        too: silently baselining it would hide a window that is already open.
+        """
+        keywords = [str(k).strip() for k in (keywords_found or []) if str(k).strip()]
+        lines: List[str] = []
+        if baseline:
+            lines.append(f"📣 <b>{_esc(name.upper())} - NOW WATCHING THIS PAGE</b>")
+            lines.append("")
+            lines.append(
+                "First read of this announcement page. Check it once by hand — a "
+                "window may already be open; from here on you only get changes."
+            )
+            lines.append("")
+        if keywords:
+            if not baseline:
+                lines.append(
+                    f"🔴📣 <b>{_esc(name.upper())} - ANNOUNCEMENT: "
+                    f"{_esc(', '.join(keywords).upper())}</b>"
+                )
+                lines.append("")
+            lines.append(f"High-signal keywords: <b>{_esc(', '.join(keywords))}</b>")
+        elif not baseline:
+            lines.append(f"📣 <b>{_esc(name.upper())} - page text changed</b>")
+            lines.append("")
+
+        all_diff = [str(d) for d in (diff_lines or []) if str(d).strip()]
+        shown = all_diff[:_MAX_DIFF_LINES]
+        if shown:
+            lines.append("Changed lines:")
+            lines += [f"<code>{_esc_cut(d, 300)}</code>" for d in shown]
+            hidden = len(all_diff) - len(shown)
+            if hidden > 0:
+                lines.append(f"…and {hidden} more changed line(s)")
+
+        lines += ["", f"🔗 {_esc(url)}"]
+        return self._send("\n".join(lines), "📣")
+
+    def send_dates_unavailable(self, tent_name: str) -> bool:
         """Send notification when dates become unavailable"""
         message = (
-            f"❌ <b>{tent_name} - No Longer Available</b>\n\n"
+            f"❌ <b>{_esc(tent_name)} - No Longer Available</b>\n\n"
             "The previously available options have been booked.\n"
             "Will continue monitoring..."
         )
-        self.send_notification(message)
+        return self._send(message)
 
-    def send_error_notification(self, tent_name: str, error_msg: str, error_count: int):
+    def send_error_notification(
+        self, tent_name: str, error_msg: str, error_count: int
+    ) -> bool:
         """Send notification about monitoring errors"""
-        import html
-
-        escaped_error = html.escape(error_msg)
-
         message = (
-            f"⚠️ <b>{tent_name} - Monitor Error</b>\n\n"
+            f"⚠️ <b>{_esc(tent_name)} - Monitor Error</b>\n\n"
             f"Failed to check reservation page {error_count} time(s):\n"
-            f"<code>{escaped_error[:500]}</code>\n\n"
+            f"<code>{_esc_cut(error_msg, 500)}</code>\n\n"
             "Monitor will continue trying..."
         )
-        self.send_notification(message)
+        return self._send(message)
 
-    def send_recovery_notification(self, tent_name: str):
+    def send_recovery_notification(self, tent_name: str) -> bool:
         """Send notification when monitoring recovers from errors"""
         message = (
-            f"✅ <b>{tent_name} - Monitor Recovered</b>\n\n"
+            f"✅ <b>{_esc(tent_name)} - Monitor Recovered</b>\n\n"
             "Successfully reconnected to reservation page.\n"
             "Monitoring continues normally."
         )
-        self.send_notification(message)
+        return self._send(message)
 
-    def send_heartbeat(self, tent_reports: List[Dict[str, Any]]):
-        """Periodic 'still alive' digest covering every monitored tent.
+    def send_blind_alert(
+        self,
+        tent_reports: List[Dict[str, Any]],
+        minutes_blind: float,
+        watchdog_enabled: bool = True,
+    ) -> bool:
+        """The bot cannot see. Meant to be re-sent while the condition lasts —
+        a one-shot latched error notification is what hid 30 days of blindness.
 
-        Each report dict: {name, last_check_iso, available_count,
-        consecutive_errors, slot_pairs}. Goal: if any tent silently stops
-        being polled, it's visible in the digest. Slot pairs are listed so
-        the user can see at a glance which date/time combinations the bot is
-        currently tracking (incl. ones suppressed by the alert filter).
+        Each report dict: {name, seconds_since_success, last_error}.
         """
-        import html
-
-        _MAX_SLOTS_PER_TENT = 20  # keep message under Telegram's 4096-char limit
-
-        sections: List[str] = []
-        any_problem = False
+        lines = [
+            "🚨🚨 <b>I CANNOT SEE - MONITOR IS BLIND</b> 🚨🚨",
+            "",
+            f"No successful check for <b>{_fmt_age(float(minutes_blind) * 60)}</b>. "
+            "Weekend evening slots could be published and gone again right now "
+            "without any alert.",
+            "",
+        ]
         for r in tent_reports:
-            name = html.escape(str(r.get("name", "?")))
-            last = _fmt_iso_local(r.get("last_check_iso"))
-            count = int(r.get("available_count", 0))
+            lines.append(
+                f"• <b>{_esc(r.get('name', '?'))}</b> — last success "
+                f"{_fmt_age(r.get('seconds_since_success'))} ago"
+            )
+            last_error = r.get('last_error')
+            if last_error:
+                lines.append(f"  <code>{_esc_cut(last_error, 200)}</code>")
+
+        if not watchdog_enabled:
+            lines += ["", "⛔ EXTERNAL WATCHDOG DISABLED (healthcheck_url is empty)."]
+        lines += [
+            "",
+            "Check the box: <code>systemctl status oktoberfest-bot</code>",
+        ]
+        return self._send("\n".join(lines), "🚨")
+
+    def send_heartbeat(
+        self,
+        tent_reports: List[Dict[str, Any]],
+        max_slot_age_for_display_seconds: float = 3600.0,
+        watchdog_enabled: bool = True,
+    ) -> bool:
+        """Periodic digest covering every monitored tent.
+
+        Each report dict: {name, last_check_iso, seconds_since_success,
+        available_count, consecutive_errors, slot_pairs, interval_seconds,
+        blind_after_seconds, last_error}.
+
+        Freshness is judged per tent against the same deadline the blindness loop
+        uses, and slot data older than max_slot_age_for_display_seconds is
+        withheld instead of printed: a stale slot list reads exactly like a
+        healthy one, which is what made 30 days of blindness look alive.
+        """
+        sections: List[str] = []
+        blind: List[str] = []
+
+        for r in tent_reports:
+            name = str(r.get("name", "?"))
+            age = r.get("seconds_since_success")
             errs = int(r.get("consecutive_errors", 0))
+            count = int(r.get("available_count", 0))
             slot_pairs: List[str] = list(r.get("slot_pairs") or [])
 
-            if errs >= 5:
-                icon = "⚠️"
-                status = f"⚠ {errs} consecutive error(s)"
-                any_problem = True
-            elif r.get("last_check_iso") is None:
-                icon = "❓"
-                status = "no successful check yet"
-                any_problem = True
-            elif count == 0:
-                icon = "✅"
-                status = "no dates published yet"
-            else:
-                icon = "✅"
-                status = f"{count} date(s) tracked"
-
-            section = (
-                f"{icon} <b>{name}</b>\n"
-                f"   Last check: {html.escape(last)}\n"
-                f"   {status}"
+            deadline = float(
+                r.get("blind_after_seconds")
+                or (float(r.get("interval_seconds") or 0) * 3)
+                or max_slot_age_for_display_seconds
             )
+            if age is None or age > deadline:
+                blind.append(name)
+                icon, status = "🚨", "NOT SEEING THIS TENT"
+            elif errs >= 5:
+                icon, status = "⚠️", f"{errs} consecutive error(s)"
+            elif count == 0:
+                icon, status = "✅", "no slots published yet"
+            else:
+                icon, status = "✅", f"{count} slot(s) tracked"
 
-            if slot_pairs:
+            lines = [
+                f"{icon} <b>{_esc(name)}</b>",
+                f"   Last success: {_fmt_age(age)}" + (" ago" if age is not None else ""),
+            ]
+            if r.get("last_check_iso"):
+                lines.append(f"   Last check: {_esc(_fmt_iso_local(r['last_check_iso']))}")
+            lines.append(f"   {status}")
+            if r.get("last_error"):
+                lines.append(f"   <code>{_esc_cut(r['last_error'], 120)}</code>")
+
+            if slot_pairs and (age is None or age > max_slot_age_for_display_seconds):
+                stale = "never verified" if age is None else f"{_fmt_age(age)} old"
+                lines.append(f"   ⛔ slot data is {stale} - NOT current")
+            elif slot_pairs:
                 shown = slot_pairs[:_MAX_SLOTS_PER_TENT]
-                hidden = max(0, len(slot_pairs) - len(shown))
-                bullets = "\n".join(f"   • {html.escape(s)}" for s in shown)
-                section += "\n" + bullets
+                lines += [f"   • {_esc(s)}" for s in shown]
+                hidden = len(slot_pairs) - len(shown)
                 if hidden:
-                    section += f"\n   …and {hidden} more"
+                    lines.append(f"   …and {hidden} more")
 
-            sections.append(section)
+            sections.append("\n".join(lines))
 
-        header = (
-            "📊 <b>Daily Status</b>"
-            if not any_problem
-            else "📊 <b>Daily Status — issues detected</b>"
-        )
-        message = header + "\n\n" + "\n\n".join(sections)
-        self.send_notification(message)
+        if blind:
+            header = (
+                f"🚨 <b>ALARM: {len(blind)} of {len(tent_reports)} tent(s) BLIND</b>\n"
+                f"No fresh data from: {_esc(', '.join(blind))}"
+            )
+        else:
+            header = f"✅ <b>Daily Status - all {len(tent_reports)} tent(s) fresh</b>"
+        if not watchdog_enabled:
+            header += "\n⛔ EXTERNAL WATCHDOG DISABLED (healthcheck_url is empty)"
+
+        return self._send_listing(header, sections, "")
