@@ -103,17 +103,49 @@
       "enabled": true
     },
     {
-      "id": "hacker-muenchner-kontingent-buchung",
-      "name": "Hacker-Festzelt Münchner Kontingent (Buchungsroute)",
-      "url": "https://reservierung.hacker-festzelt.de/real-munich-reservation/",
+      "id": "schottenhamel-reservierung-ankuendigung",
+      "name": "Schottenhamel Reservierung (Ankündigung)",
+      "url": "https://festhalle-schottenhamel.de/reservierung/",
       "scraper_type": "announcement",
       "check_interval": 1800,
       "enabled": true
     },
     {
-      "id": "ochsenbraterei-muenchner-kontingent-buchung",
-      "name": "Ochsenbraterei Münchner Kontingent (Buchungsroute)",
-      "url": "https://reservierung.ochsenbraterei.de/muenchen-kontingent",
+      "id": "hacker-reservierung-ankuendigung",
+      "name": "Hacker-Festzelt Reservierung (Ankündigung)",
+      "url": "https://hacker-festzelt.de/reservierung/",
+      "scraper_type": "announcement",
+      "check_interval": 1800,
+      "enabled": true
+    },
+    {
+      "id": "ochsenbraterei-reservierung-ankuendigung",
+      "name": "Ochsenbraterei Reservierung (Ankündigung)",
+      "url": "https://www.ochsenbraterei.de/reservierung/",
+      "scraper_type": "announcement",
+      "check_interval": 1800,
+      "enabled": true
+    },
+    {
+      "id": "paulaner-reservierung-ankuendigung",
+      "name": "Paulaner Festzelt Reservierung (Ankündigung)",
+      "url": "https://www.paulanerfestzelt.de/oktoberfest-festival-tent/reservierung/",
+      "scraper_type": "announcement",
+      "check_interval": 1800,
+      "enabled": true
+    },
+    {
+      "id": "weinzelt-ankuendigung",
+      "name": "Kufflers Weinzelt (Ankündigung)",
+      "url": "https://www.weinzelt.com/",
+      "scraper_type": "announcement",
+      "check_interval": 1800,
+      "enabled": true
+    },
+    {
+      "id": "zur-bratwurst-ankuendigung",
+      "name": "Hochreiters zur Bratwurst (Ankündigung)",
+      "url": "https://www.zur-bratwurst.de/",
       "scraper_type": "announcement",
       "check_interval": 1800,
       "enabled": true
