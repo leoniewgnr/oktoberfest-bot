@@ -7,11 +7,12 @@ that answer, so a dropped message means "re-alert next cycle" instead of
 """
 
 import html
+import re
 from abc import ABC, abstractmethod
 from datetime import datetime
 from typing import Any, Dict, Iterable, List, Optional
 
-from ..filters import is_weekend_evening, parse_weekday, should_alert
+from ..filters import is_weekend_evening, parse_weekday, should_alert, weekend_class
 
 try:
     from zoneinfo import ZoneInfo
@@ -101,12 +102,33 @@ def _fmt_age(seconds: Optional[float]) -> str:
 
 
 _is_weekend_evening = is_weekend_evening
+_weekend_class = weekend_class
+
+_CLASS_RANK = {"evening": 0, "unknown": 1, "daytime": 2}
 
 
-def _weekend_header(tent_name: str, calm: str, weekend: bool) -> str:
-    """Loud, unmistakable header for weekend evenings; the calm one otherwise."""
-    if weekend:
-        return f"🔴🍺 <b>WEEKEND EVENING - {_esc(tent_name.upper())} - BOOK NOW</b> 🍺🔴"
+def _strongest_class(pairs: "list[tuple]") -> "str | None":
+    """Pick the most urgent weekend class across (date_text, time_text) pairs:
+    evening > unknown > daytime; None if nothing is a weekend."""
+    best = None
+    for date_text, time_text in pairs:
+        k = weekend_class(str(date_text or ""), str(time_text or ""))
+        if k and (best is None or _CLASS_RANK[k] < _CLASS_RANK[best]):
+            best = k
+    return best
+
+
+def _weekend_header(tent_name: str, calm: str, klass: "str | None") -> str:
+    """Honest weekend header. Only a shift we actually read as Abend earns the
+    EVENING banner; an unreadable shift says so instead of overclaiming; a
+    weekend daytime slot is still flagged but not dressed up as an evening."""
+    name = _esc(tent_name.upper())
+    if klass == "evening":
+        return f"🔴🍺 <b>WEEKEND EVENING - {name} - BOOK NOW</b> 🍺🔴"
+    if klass == "unknown":
+        return f"🔴❓ <b>WEEKEND SLOT (SHIFT UNKNOWN) - {name} - CHECK NOW</b> ❓🔴"
+    if klass == "daytime":
+        return f"🟠 <b>WEEKEND (not evening) - {name}</b>"
     return calm
 
 
@@ -127,7 +149,8 @@ def _format_slot_line(
     """One slot line: weekend evenings marked, Bereiche inlined when known, and
     the slot key appended so she can match it in the booking picker."""
     text = date.get("text", "")
-    marker = "🔴 " if _is_weekend_evening(str(text), extra_text) else ""
+    klass = weekend_class(str(text), extra_text)
+    marker = {"evening": "🔴 ", "unknown": "🔴 ", "daytime": "🟠 "}.get(klass, "")
     line = f"• {marker}{_esc(text)}"
 
     value = date.get("value")
@@ -139,9 +162,19 @@ def _format_slot_line(
     ]
     if labels:
         line += "  —  " + _esc(", ".join(labels))
-    if value:
+    # The key is only worth showing when it is an opaque booking id (API uid);
+    # for the browser tents it is just the ISO date already shown in the text.
+    if value and _is_useful_key(str(value), str(text)):
         line += f"  <code>{_esc(value)}</code>"
     return line
+
+
+def _is_useful_key(value: str, text: str) -> bool:
+    if not value or value in text:
+        return False
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}(\|.*)?", value):  # ISO date, ± a shift suffix
+        return False
+    return True
 
 
 def _urgency_rank(text: str, extra_text: str = "") -> int:
@@ -216,11 +249,11 @@ class BaseNotifier(ABC):
         if not filtered:
             return True
 
-        weekend = any(_is_weekend_evening(str(d.get('text', ''))) for d in filtered)
+        klass = _strongest_class([(d.get('text', ''), '') for d in filtered])
         header = _weekend_header(
             tent_name,
             f"🍺🎉 <b>{_esc(tent_name.upper())} - TABLES AVAILABLE!</b> 🎉🍺",
-            weekend,
+            klass,
         )
         header += f"\n\nFound {len(filtered)} available option(s):"
         lines = [_format_slot_line(d, areas_by_date_value) for d in filtered]
@@ -241,11 +274,11 @@ class BaseNotifier(ABC):
         if not filtered:
             return True
 
-        weekend = any(_is_weekend_evening(str(d.get('text', ''))) for d in filtered)
+        klass = _strongest_class([(d.get('text', ''), '') for d in filtered])
         header = _weekend_header(
             tent_name,
             f"🆕📅 <b>{_esc(tent_name.upper())} - NEW OPTIONS ADDED!</b> 📅🆕",
-            weekend,
+            klass,
         )
         header += f"\n\nNewly added option(s) ({len(filtered)}):"
         lines = [_format_slot_line(d, areas_by_date_value) for d in filtered]
@@ -271,12 +304,11 @@ class BaseNotifier(ABC):
         if not filtered:
             return True
 
-        weekend = any(
-            _is_weekend_evening(date_text, str(t.get('text', ''))) for t in filtered
-        )
+        klass = _strongest_class([(date_text, t.get('text', '')) for t in filtered])
+        _mk = {"evening": "🔴 ", "unknown": "🔴 ", "daytime": "🟠 "}
         times_text = "\n".join(
             "• "
-            + ("🔴 " if _is_weekend_evening(date_text, str(t.get('text', ''))) else "")
+            + _mk.get(weekend_class(date_text, str(t.get('text', ''))), "")
             + _esc(t.get('text', ''))
             for t in filtered
         )
@@ -294,7 +326,7 @@ class BaseNotifier(ABC):
         header = _weekend_header(
             tent_name,
             f"⏰🎉 <b>{_esc(tent_name.upper())} - NEW TIME SLOTS!</b> 🎉⏰",
-            weekend,
+            klass,
         )
         message = (
             f"{header}\n\n"
@@ -322,7 +354,7 @@ class BaseNotifier(ABC):
         if self._should_suppress_midday(time_text or "", date_text):
             return True
 
-        weekend = _is_weekend_evening(date_text, time_text)
+        klass = weekend_class(date_text, time_text)
         areas_text = "\n".join(
             f"• {_esc(a.get('text', ''))}" for a in new_areas
         )
@@ -334,7 +366,7 @@ class BaseNotifier(ABC):
         header = _weekend_header(
             tent_name,
             f"📍🆕 <b>{_esc(tent_name.upper())} - NEW BEREICH(E)!</b> 🆕📍",
-            weekend,
+            klass,
         )
 
         message = (
@@ -360,12 +392,16 @@ class BaseNotifier(ABC):
         if self._should_suppress_midday(time_text or "", date_text):
             return True
 
-        weekend = _is_weekend_evening(date_text, time_text)
-        header = (
-            f"🔴♻️ <b>WEEKEND EVENING FREED UP - {_esc(tent_name.upper())} - BOOK NOW</b> ♻️🔴"
-            if weekend
-            else f"♻️🍺 <b>{_esc(tent_name.upper())} - TABLE FREED UP</b> 🍺♻️"
-        )
+        klass = weekend_class(date_text, time_text)
+        name = _esc(tent_name.upper())
+        if klass == "evening":
+            header = f"🔴♻️ <b>WEEKEND EVENING FREED UP - {name} - BOOK NOW</b> ♻️🔴"
+        elif klass == "unknown":
+            header = f"🔴♻️ <b>WEEKEND TABLE FREED UP (SHIFT UNKNOWN) - {name} - CHECK NOW</b> ♻️🔴"
+        elif klass == "daytime":
+            header = f"🟠♻️ <b>WEEKEND (not evening) TABLE FREED UP - {name}</b> ♻️🟠"
+        else:
+            header = f"♻️🍺 <b>{name} - TABLE FREED UP</b> 🍺♻️"
         slot_line = (
             f"Slot: <b>{_esc(date_text)}</b> – <b>{_esc(time_text)}</b>"
             if time_text

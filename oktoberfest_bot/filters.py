@@ -131,6 +131,29 @@ def should_alert(date_text: str = "", time_text: str = "", weekday: int | None =
     return True
 
 
+def weekend_class(*texts: str) -> "str | None":
+    """Classify a Fri/Sat/Sun slot by the shift we could read, for honest labels.
+
+    None      -> not Fri/Sat/Sun (or unparseable weekday)
+    "evening" -> weekend + Abend  (the jackpot)
+    "daytime" -> weekend + a shift we can read that is NOT evening
+                 (Mittag/Vormittag/Frühschoppen) — still alerted, never suppressed
+    "unknown" -> weekend but the shift is unreadable — must be checked manually
+
+    The browser tents cannot read the shift, so their weekend slots land in
+    "unknown"; only a slot we can actually read as Abend earns "evening".
+    """
+    combined = " ".join(t for t in texts if t).strip()
+    weekday = parse_weekday(combined)
+    if weekday is None or weekday < 4:
+        return None
+    if is_abend(combined):
+        return "evening"
+    if is_mittag(combined) or is_fruehschoppen(combined) or is_vormittag_or_daytime(combined):
+        return "daytime"
+    return "unknown"
+
+
 def is_weekend_evening(*texts: str) -> bool:
     """Fri/Sat/Sun with an Abend or undeterminable shift — the slots this bot
     exists for. Explicit Mittag/Vormittag/Frühschoppen on those days is not it."""
