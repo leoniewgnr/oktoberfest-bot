@@ -111,6 +111,19 @@ class FormSelectScraper(BaseScraper):
         select_element = await page.query_selector(selector)
         return await self._extract_select_handle(select_element)
 
+    async def _body_text(self, page: Any) -> str:
+        try:
+            return await page.inner_text('body')
+        except Exception:
+            return ""
+
+    async def _count_selects(self, page: Any) -> Optional[int]:
+        """How many <select> elements the page rendered. None if we couldn't ask."""
+        try:
+            return len(await page.query_selector_all('select'))
+        except Exception:
+            return None
+
     def _fail(
         self,
         error: str,

@@ -33,3 +33,29 @@ def test_build_slots_is_date_only_with_no_times():
     s = slots[0]
     assert s["date_text"] == "Samstag, 26.09.2026"
     assert s["time_value"] is None and s["key"] == "2026-09-26"
+<<<<<<< HEAD
+
+
+def test_every_self_method_call_is_defined():
+    """A refactor twice deleted helper methods (_fail, then _body_text/
+    _count_selects) that only the live browser path calls, so unit tests stayed
+    green while production crashed. Guard the whole class structurally."""
+    import ast
+    import inspect
+    from oktoberfest_bot.scrapers import form_select
+
+    tree = ast.parse(inspect.getsource(form_select))
+    cls = next(n for n in ast.walk(tree)
+               if isinstance(n, ast.ClassDef) and n.name == "FormSelectScraper")
+    defined = {m.name for m in cls.body
+               if isinstance(m, (ast.FunctionDef, ast.AsyncFunctionDef))}
+    called = {
+        n.func.attr for n in ast.walk(cls)
+        if isinstance(n, ast.Call) and isinstance(n.func, ast.Attribute)
+        and isinstance(getattr(n.func, "value", None), ast.Name)
+        and n.func.value.id == "self" and n.func.attr.startswith("_")
+    }
+    missing = called - defined
+    assert not missing, f"self.{missing} called but not defined on FormSelectScraper"
+=======
+>>>>>>> origin/main
