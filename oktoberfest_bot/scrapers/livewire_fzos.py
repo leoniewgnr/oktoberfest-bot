@@ -25,11 +25,10 @@ import re
 import threading
 import time
 from datetime import date as _date
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 
 import requests
 
-from .. import filters
 from .base_scraper import HONEST_USER_AGENT, BaseScraper, ScrapeResult
 
 logger = logging.getLogger(__name__)
