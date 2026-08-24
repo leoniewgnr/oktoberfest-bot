@@ -113,6 +113,22 @@ def _blind_deadline(tent_config: Dict, blind_after: float) -> float:
     return max(blind_after, _interval_seconds(tent_config) * _BLIND_POLLS_MISSED)
 
 
+def _alert_worthy(date_text: str, time_text: str) -> bool:
+    """Whether a slot is worth a Telegram alert.
+
+    Follows the shift filter, plus: when the shift is unknown (the browser tents
+    can't read it), only Fri/Sat/Sun — or a date we can't parse — is worth
+    sending. A weekday date with no readable shift is not the weekend evening she
+    is watching for, and alerting on all of them is pure noise.
+    """
+    weekday = filters.parse_weekday(f"{date_text} {time_text}")
+    if not filters.should_alert(date_text, time_text, weekday):
+        return False
+    if not (time_text or "").strip() and weekday is not None and weekday < 4:
+        return False
+    return True
+
+
 def _slot_events(diffs: Dict[str, List[Dict[str, Any]]]) -> List[SlotEvent]:
     """One event per changed slot, urgent ones first.
 
@@ -130,9 +146,9 @@ def _slot_events(diffs: Dict[str, List[Dict[str, Any]]]) -> List[SlotEvent]:
             seen.add(key)
             date_text = slot.get('date_text') or ''
             time_text = slot.get('time_text') or ''
-            weekday = filters.parse_weekday(f"{date_text} {time_text}")
-            if not filters.should_alert(date_text, time_text, weekday):
+            if not _alert_worthy(date_text, time_text):
                 continue
+            weekday = filters.parse_weekday(f"{date_text} {time_text}")
             events.append(SlotEvent(kind, slot, weekday is None or weekday >= 4))
     events.sort(key=lambda event: not event.urgent)  # stable: urgent first
     return events
@@ -263,7 +279,7 @@ def _handle_times_incomplete(rt: Runtime, tent_config: Dict, slots: List[Dict[st
         _slot_text(s)
         for s in slots
         if not (s.get('time_text') or '').strip()
-        and filters.should_alert(s.get('date_text') or '', '')
+        and _alert_worthy(s.get('date_text') or '', '')
     ]
     if not unknown:
         rt.state.update_tent_state(tent_id, times_unknown_notified_at=None)
