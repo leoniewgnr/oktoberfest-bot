@@ -100,3 +100,19 @@ def test_shift_helpers_still_exported():
     assert is_fruehschoppen("Frühschoppen") is True
     assert is_vormittag_or_daytime("Einlass 12:00") is True
     assert is_vormittag_or_daytime("Einlass 18:30") is False
+
+
+def test_weekend_class_honest_labels():
+    from oktoberfest_bot.filters import weekend_class
+    # the jackpot only when we actually read Abend
+    assert weekend_class("Samstag, 26.09.2026", "Abend") == "evening"
+    assert weekend_class("Samstag, 26.09.2026 – Abend") == "evening"
+    # a read non-evening weekend shift is flagged but not "evening"
+    assert weekend_class("Sonntag, 04.10.2026", "Frühschoppen") == "daytime"
+    assert weekend_class("Samstag, 26.09.2026", "Mittag") == "daytime"
+    # unreadable shift on a weekend must be honest, not overclaimed as evening
+    assert weekend_class("Sonntag, 04.10.2026", "") == "unknown"
+    assert weekend_class("Samstag, 26.09.2026") == "unknown"
+    # weekdays are never a weekend class
+    assert weekend_class("Montag, 21.09.2026", "Abend") is None
+    assert weekend_class("Freitag, 25.09.2026", "Abend") == "evening"

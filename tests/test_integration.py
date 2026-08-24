@@ -199,3 +199,34 @@ def test_state_flip_on_a_saturday_slot_alerts(monkeypatch, rt):
     run_cycle(monkeypatch, runtime, [dict(SATURDAY_EVENING, state='confirmed')])
     assert len(notifier.messages) == 1
     assert "BOOKING STATE CHANGED" in notifier.messages[0]
+
+
+def test_weekend_shift_unknown_is_not_labelled_evening():
+    """Regression: a browser tent weekend slot with an unreadable shift used to
+    get the WEEKEND EVENING banner and a repeated ISO-date artifact. It must now
+    say the shift is unknown, and never falsely claim EVENING."""
+    from oktoberfest_bot.notifiers.base_notifier import BaseNotifier
+
+    class Rec(BaseNotifier):
+        def __init__(self): self.msgs = []
+        def send_notification(self, m): self.msgs.append(m); return 1
+
+    n = Rec()
+    n.send_new_dates_added(
+        "Hacker-Festzelt", "https://reservierung.derhimmelderbayern.de/reservierung",
+        [{"value": "2026-10-04", "text": "Sonntag, 04.10.2026"}],
+    )
+    body = n.msgs[0]
+    assert "SHIFT UNKNOWN" in body
+    assert "WEEKEND EVENING" not in body      # must not overclaim
+    assert "2026-10-04" not in body           # ISO-date artifact gone
+    assert "Sonntag, 04.10.2026" in body      # the date itself still shows
+
+    # A real, read Abend still earns the evening banner and keeps a useful uid.
+    n2 = Rec()
+    n2.send_dates_available(
+        "Schottenhamel", "https://x/",
+        [{"value": "ASAGWCE", "text": "Samstag, 26.09.2026 – Abend"}],
+    )
+    assert "WEEKEND EVENING" in n2.msgs[0]
+    assert "ASAGWCE" in n2.msgs[0]
