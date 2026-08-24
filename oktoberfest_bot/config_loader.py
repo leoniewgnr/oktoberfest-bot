@@ -11,6 +11,7 @@ SCRAPER_TYPE_REQUIRED_FIELDS = {
     'api_fzos': ['api_host', 'company_id'],
     'form_select': ['selector'],
     'announcement': [],
+    'livewire': [],
 }
 
 

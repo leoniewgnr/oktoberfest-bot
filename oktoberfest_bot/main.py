@@ -23,7 +23,12 @@ from . import filters
 from .config_loader import ConfigLoader
 from .health import BlindnessMonitor, HealthReporter, escalating_interval
 from .notifiers import TelegramNotifier
-from .scrapers import AnnouncementScraper, ApiFzosScraper, FormSelectScraper
+from .scrapers import (
+    AnnouncementScraper,
+    ApiFzosScraper,
+    FormSelectScraper,
+    LivewireFzosScraper,
+)
 from .scrapers.api_fzos import prime_areas_cache
 from .state_manager import StateManager
 
@@ -40,7 +45,7 @@ _BLIND_POLLS_MISSED = 3
 # Targets whose failure means we can no longer see booking supply. Announcement
 # pages are third-party marketing sites; one of them being permanently down must
 # not leave the external dead-man's switch stuck red and therefore useless.
-_SLOT_BEARING_TYPES = ('api_fzos', 'form_select')
+_SLOT_BEARING_TYPES = ('api_fzos', 'form_select', 'livewire')
 
 # Default paths
 BASE_DIR = Path(__file__).parent.parent
@@ -73,6 +78,8 @@ def create_scraper(tent_config: Dict):
         return ApiFzosScraper(tent_config)
     if scraper_type == 'announcement':
         return AnnouncementScraper(tent_config)
+    if scraper_type == 'livewire':
+        return LivewireFzosScraper(tent_config)
     raise ValueError(f"Unknown scraper type: {scraper_type}")
 
 
