@@ -230,3 +230,23 @@ def test_weekend_shift_unknown_is_not_labelled_evening():
     )
     assert "WEEKEND EVENING" in n2.msgs[0]
     assert "ASAGWCE" in n2.msgs[0]
+
+
+def test_unknown_shift_only_alerts_on_weekends():
+    """The browser tents can't read the shift. A weekday date with no shift is
+    noise; only Fri/Sat/Sun (or an unparseable date) is worth sending. A KNOWN
+    shift still follows the normal rules on any day."""
+    from oktoberfest_bot.main import _alert_worthy
+
+    # date-only (shift unknown)
+    assert _alert_worthy("Montag, 21.09.2026", "") is False
+    assert _alert_worthy("Donnerstag, 24.09.2026", "") is False
+    assert _alert_worthy("Freitag, 25.09.2026", "") is True
+    assert _alert_worthy("Samstag, 26.09.2026", "") is True
+    assert _alert_worthy("Sonntag, 27.09.2026", "") is True
+    assert _alert_worthy("kein datum", "") is True          # unparseable -> defensive
+
+    # known shift keeps the existing weekday rules (API tents)
+    assert _alert_worthy("Montag, 21.09.2026", "Abend") is True
+    assert _alert_worthy("Montag, 21.09.2026", "Mittag") is False
+    assert _alert_worthy("Samstag, 26.09.2026", "Mittag") is True   # weekend never suppressed

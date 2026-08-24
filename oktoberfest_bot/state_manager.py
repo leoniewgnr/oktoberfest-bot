@@ -322,12 +322,16 @@ class StateManager:
                     seen[key] = {
                         "first_seen": now_iso,
                         "last_seen": now_iso,
+                        "date_text": slot.get('date_text') or '',
+                        "time_text": slot.get('time_text') or '',
                         "state": slot.get('state'),
                         "gone_since": None,
                         "areas": _slot_areas(slot),
                     }
                 else:
                     entry['last_seen'] = now_iso
+                    entry['date_text'] = slot.get('date_text') or entry.get('date_text') or ''
+                    entry['time_text'] = slot.get('time_text') or entry.get('time_text') or ''
                     entry['state'] = slot.get('state')
                     entry['gone_since'] = None
                     entry['areas'] = _slot_areas(slot)
