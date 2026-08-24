@@ -121,19 +121,12 @@ def _blind_deadline(tent_config: Dict, blind_after: float) -> float:
 
 
 def _alert_worthy(date_text: str, time_text: str) -> bool:
-    """Whether a slot is worth a Telegram alert.
+    """Whether a slot is worth a Telegram alert — the shift filter decides.
 
-    Follows the shift filter, plus: when the shift is unknown (the browser tents
-    can't read it), only Fri/Sat/Sun — or a date we can't parse — is worth
-    sending. A weekday date with no readable shift is not the weekend evening she
-    is watching for, and alerting on all of them is pure noise.
+    Abend any day, plus weekend/undeterminable slots whose shift we could not
+    read; identified non-evening shifts and Mon-Thu date-only slots stay quiet.
     """
-    weekday = filters.parse_weekday(f"{date_text} {time_text}")
-    if not filters.should_alert(date_text, time_text, weekday):
-        return False
-    if not (time_text or "").strip() and weekday is not None and weekday < 4:
-        return False
-    return True
+    return filters.should_alert(date_text, time_text)
 
 
 def _slot_events(diffs: Dict[str, List[Dict[str, Any]]]) -> List[SlotEvent]:

@@ -249,4 +249,5 @@ def test_unknown_shift_only_alerts_on_weekends():
     # known shift keeps the existing weekday rules (API tents)
     assert _alert_worthy("Montag, 21.09.2026", "Abend") is True
     assert _alert_worthy("Montag, 21.09.2026", "Mittag") is False
-    assert _alert_worthy("Samstag, 26.09.2026", "Mittag") is True   # weekend never suppressed
+    assert _alert_worthy("Samstag, 26.09.2026", "Mittag") is False  # weekend Mittag now suppressed
+    assert _alert_worthy("Samstag, 26.09.2026", "Abend") is True    # weekend Abend is the goal
