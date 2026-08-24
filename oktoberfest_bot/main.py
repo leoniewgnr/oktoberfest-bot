@@ -188,17 +188,6 @@ def _state_change_message(tent_config: Dict, slot: Dict[str, Any]) -> str:
     )
 
 
-def _times_unknown_message(tent_config: Dict, slot_texts: List[str]) -> str:
-    return (
-        f"⚠️ <b>{html.escape(tent_config['name'].upper())} - DATES WITH UNKNOWN "
-        "TIME</b>\n\n"
-        "These reservation dates are published, but the bot cannot read their "
-        "time slot(s) (e.g. Abend). Check them manually ASAP — this alert repeats "
-        "until the times become readable:\n\n"
-        + "\n".join(f"• {html.escape(text)}" for text in slot_texts)
-        + f"\n\n🔗 {html.escape(tent_config['url'])}"
-    )
-
 
 def _startup_message(tents: List[Dict], watchdog_enabled: bool) -> str:
     """Cadences differ by an order of magnitude between API, browser and
@@ -268,29 +257,6 @@ def _send_slot_event(rt: Runtime, tent_config: Dict, event: SlotEvent) -> bool:
     )
 
 
-def _handle_times_incomplete(rt: Runtime, tent_config: Dict, slots: List[Dict[str, Any]]):
-    """Standing alarm for dates whose time we cannot read.
-
-    Reporting it only on the cycle the date first appeared turns "I can see a
-    date but not whether it is Abend" into permanent silence.
-    """
-    tent_id = tent_config['id']
-    unknown = [
-        _slot_text(s)
-        for s in slots
-        if not (s.get('time_text') or '').strip()
-        and _alert_worthy(s.get('date_text') or '', '')
-    ]
-    if not unknown:
-        rt.state.update_tent_state(tent_id, times_unknown_notified_at=None)
-        return
-    interval = float(rt.config['blind_realert_interval_seconds'])
-    if not rt.state.should_renotify(tent_id, 'times_unknown_notified_at', interval):
-        return
-    rt.logger.warning(f"{tent_config['name']}: time unreadable for {len(unknown)} date(s)")
-    if rt.notifier.send_notification(_times_unknown_message(tent_config, unknown)) is not None:
-        rt.state.mark_notified(tent_id, 'times_unknown_notified_at')
-
 
 def _handle_slots(rt: Runtime, tent_config: Dict, result):
     tent_id = tent_config['id']
@@ -334,9 +300,6 @@ def _handle_slots(rt: Runtime, tent_config: Dict, result):
     for event in weekday_events:
         if event.kind != 'new' and not _send_slot_event(rt, tent_config, event):
             undelivered.add(str(event.slot.get('key')))
-
-    if getattr(result, 'times_incomplete', False):
-        _handle_times_incomplete(rt, tent_config, current_slots)
 
     if was_available and not result.dates_available:
         logger.info(f"{tent_name}: nothing published any more")
