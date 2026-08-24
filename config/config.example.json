@@ -3,7 +3,7 @@
   "telegram_chat_id": "YOUR_CHAT_ID_HERE",
   "state_file": "/opt/oktoberfest-bot/state.json",
   "log_file": "/opt/oktoberfest-bot/logs/monitor.log",
-  "heartbeat_interval_seconds": 3600,
+  "heartbeat_interval_seconds": 86400,
   "blind_alert_after_seconds": 900,
   "blind_realert_interval_seconds": 1800,
   "max_slot_age_for_display_seconds": 3600,

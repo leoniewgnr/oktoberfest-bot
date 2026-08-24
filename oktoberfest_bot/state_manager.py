@@ -151,6 +151,8 @@ class StateManager:
             available_times=available_times or {},
             available_areas=available_areas or {},
             consecutive_errors=0,
+            last_error=None,
+            last_error_message=None,
             last_error_notified_at=None,
             error_notify_count=0,
         )
