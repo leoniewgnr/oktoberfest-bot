@@ -10,6 +10,10 @@
 set -euo pipefail
 
 DEST=${DEST:-/opt/oktoberfest-bot}
+# The service must run as a real user, not root: playwright installs its browser
+# into $HOME/.cache, and a root-run unit would look in /root and not find it.
+RUN_USER=${RUN_USER:-${SUDO_USER:-$(id -un)}}
+RUN_HOME=$(getent passwd "$RUN_USER" | cut -d: -f6)
 REPO=${REPO:-https://github.com/leoniewgnr/oktoberfest-bot.git}
 SCRAPER_TYPES=${SCRAPER_TYPES:-[]}
 SERVICE=oktoberfest-bot.service
@@ -33,7 +37,8 @@ echo "== venv =="
 ./venv/bin/pip install --quiet -e .
 
 echo "== chromium (only needed for the form_select tents) =="
-if ./venv/bin/playwright install --with-deps chromium; then
+sudo ./venv/bin/playwright install-deps chromium || echo "   (system deps step non-fatal)"
+if sudo -u "$RUN_USER" HOME="$RUN_HOME" ./venv/bin/playwright install chromium; then
   echo "   chromium ready"
 else
   echo "   WARNING: chromium install failed - narrow SCRAPER_TYPES to exclude form_select"
@@ -65,6 +70,9 @@ path.chmod(0o600)  # holds the bot token
 print(f"   wrote {path} (types={config['enabled_scraper_types'] or 'ALL'})")
 PY
 
+echo "== ownership: everything the service touches must belong to the run user =="
+chown -R "$RUN_USER":"$RUN_USER" "$DEST"
+
 echo "== logrotate (monitor.log reached 338 MB once) =="
 cat > /etc/logrotate.d/oktoberfest-bot <<LR
 $DEST/logs/*.log {
@@ -76,6 +84,7 @@ $DEST/logs/*.log {
     missingok
     notifempty
     copytruncate
+    su $RUN_USER $RUN_USER
 }
 LR
 
@@ -88,6 +97,9 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+User=$RUN_USER
+Group=$RUN_USER
+Environment=HOME=$RUN_HOME
 WorkingDirectory=$DEST
 ExecStart=$DEST/venv/bin/python -m oktoberfest_bot.main
 Restart=always
