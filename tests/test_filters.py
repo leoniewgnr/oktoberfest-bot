@@ -28,43 +28,57 @@ LABELS = [
 ]
 
 
-@pytest.mark.parametrize("weekday", WEEKEND)
-@pytest.mark.parametrize("label", LABELS)
-def test_weekend_always_alerts(weekday, label):
+EVENING = ["Abend", "Abendveranstaltung", "dinner", "Einlass 18:30",
+           "Samstagabend", "15:30 - 22:30"]
+DAYTIME = ["Mittag", "Mittagstisch 11:00 - 16:00", "Vormittag", "Nachmittag",
+           "Frühschoppen", "Fruehschoppen", "lunch", "Einlass 12:00", "10:00 - 15:00"]
+
+
+@pytest.mark.parametrize("weekday", WEEKEND + WEEK)
+@pytest.mark.parametrize("label", EVENING)
+def test_evening_always_alerts_any_day(weekday, label):
+    # Abend is what she wants — on a weekend or a weekday.
     assert should_alert("25.09.2026", label, weekday=weekday) is True
-    assert should_alert(label, "", weekday=weekday) is True
+
+
+@pytest.mark.parametrize("weekday", WEEKEND + WEEK)
+@pytest.mark.parametrize("label", DAYTIME)
+def test_identified_non_evening_never_alerts(weekday, label):
+    # A shift we can read as non-evening is suppressed even on Fri/Sat/Sun —
+    # this is the change: no more weekend Mittag/Frühschoppen/Nachmittag noise.
+    assert should_alert("25.09.2026", label, weekday=weekday) is False
 
 
 @pytest.mark.parametrize("weekday", WEEKEND)
-def test_weekend_alerts_even_with_suppressing_date_text(weekday):
-    assert should_alert("1. Sonntag, 20.09.2026 - Mittag", "", weekday=weekday) is True
+def test_weekend_unknown_shift_still_alerts(weekday):
+    # Shift unreadable on a weekend -> alert defensively (might be the evening).
+    assert should_alert("25.09.2026", "", weekday=weekday) is True
+    assert should_alert("Wiesn-Nacht", "", weekday=weekday) is True
+    assert should_alert("???", "", weekday=weekday) is True
 
 
 @pytest.mark.parametrize("weekday", WEEK)
-@pytest.mark.parametrize("label", ["Mittag", "Mittagstisch 11:00 - 16:00", "Vormittag",
-                                  "Frühschoppen", "lunch", "Einlass 12:00"])
-def test_weekday_suppresses_daytime(weekday, label):
-    assert should_alert("", label, weekday=weekday) is False
+def test_weekday_unknown_shift_stays_quiet(weekday):
+    # Mon-Thu with no readable shift is not her priority.
+    assert should_alert("", "", weekday=weekday) is False
+    assert should_alert("Wiesn-Nacht", "", weekday=weekday) is False
 
 
-@pytest.mark.parametrize("weekday", WEEK)
-@pytest.mark.parametrize("label", ["Abend", "Abendveranstaltung", "dinner", "Einlass 18:30",
-                                  "", "Wiesn-Nacht", "???"])
-def test_weekday_alerts_on_abend_and_undetermined(weekday, label):
-    assert should_alert("", label, weekday=weekday) is True
-
-
-def test_unknown_weekday_always_alerts():
-    assert should_alert("", "Mittag", weekday=None) is True
-    assert should_alert("Wiesn-Nacht", "Frühschoppen") is True
+def test_unparseable_date_alerts_unless_identified_daytime():
+    assert should_alert("", "", weekday=None) is True          # nothing known -> defensive
+    assert should_alert("Wiesn-Nacht", "") is True             # unparseable, unknown shift
+    assert should_alert("", "Mittag", weekday=None) is False   # identified Mittag -> suppress
+    assert should_alert("", "Abend", weekday=None) is True     # identified Abend -> alert
     assert should_alert() is True
 
 
 def test_weekday_derived_from_text_when_not_passed():
-    # 25.09.2026 is a Friday → weekend guarantee applies even to a Mittag label.
-    assert should_alert("Freitag, 25.09.2026", "Mittag") is True
-    # 23.09.2026 is a Wednesday → Mittag is suppressed.
+    # 25.09.2026 is a Friday, but Mittag is now suppressed everywhere.
+    assert should_alert("Freitag, 25.09.2026", "Mittag") is False
+    assert should_alert("Freitag, 25.09.2026", "Abend") is True
+    # 23.09.2026 is a Wednesday → Mittag suppressed, Abend alerts.
     assert should_alert("Mittwoch, 23.09.2026", "Mittag") is False
+    assert should_alert("Mittwoch, 23.09.2026", "Abend") is True
 
 
 @pytest.mark.parametrize(
