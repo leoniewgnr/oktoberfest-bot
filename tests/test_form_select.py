@@ -33,6 +33,7 @@ def test_build_slots_is_date_only_with_no_times():
     s = slots[0]
     assert s["date_text"] == "Samstag, 26.09.2026"
     assert s["time_value"] is None and s["key"] == "2026-09-26"
+<<<<<<< HEAD
 
 
 def test_every_self_method_call_is_defined():
@@ -56,3 +57,5 @@ def test_every_self_method_call_is_defined():
     }
     missing = called - defined
     assert not missing, f"self.{missing} called but not defined on FormSelectScraper"
+=======
+>>>>>>> origin/main
