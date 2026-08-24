@@ -34,9 +34,7 @@
       "id": "hacker-festzelt",
       "name": "Hacker-Festzelt",
       "url": "https://reservierung.derhimmelderbayern.de/reservierung",
-      "scraper_type": "form_select",
-      "selector": "select[id=\"data.createBookingStepOneForm.date\"]",
-      "time_selector": "select[id=\"data.createBookingStepOneForm.booking_list_id\"]",
+      "scraper_type": "livewire",
       "check_interval": 300,
       "enabled": true
     },
@@ -44,9 +42,7 @@
       "id": "paulaner-festzelt",
       "name": "Paulaner Festzelt",
       "url": "https://reservierung.paulanerfestzelt.de/reservierung",
-      "scraper_type": "form_select",
-      "selector": "select[id=\"data.createBookingStepOneForm.date\"]",
-      "time_selector": "select[id=\"data.createBookingStepOneForm.booking_list_id\"]",
+      "scraper_type": "livewire",
       "check_interval": 300,
       "enabled": true
     },
@@ -54,9 +50,7 @@
       "id": "ochsenbraterei",
       "name": "Ochsenbraterei",
       "url": "https://reservierung.ochsenbraterei.de/reservierungen",
-      "scraper_type": "form_select",
-      "selector": "select[id=\"data.createBookingStepOneForm.date\"]",
-      "time_selector": "select[id=\"data.createBookingStepOneForm.booking_list_id\"]",
+      "scraper_type": "livewire",
       "check_interval": 300,
       "enabled": true
     },
@@ -64,9 +58,7 @@
       "id": "zur-bratwurst",
       "name": "Hochreiters zur Bratwurst",
       "url": "https://reservierung.zur-bratwurst.de/reservierung",
-      "scraper_type": "form_select",
-      "selector": "select[id=\"data.createBookingStepOneForm.date\"]",
-      "time_selector": "select[id=\"data.createBookingStepOneForm.booking_list_id\"]",
+      "scraper_type": "livewire",
       "check_interval": 300,
       "enabled": true
     },
