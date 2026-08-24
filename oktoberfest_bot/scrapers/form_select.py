@@ -111,6 +111,16 @@ class FormSelectScraper(BaseScraper):
         select_element = await page.query_selector(selector)
         return await self._extract_select_handle(select_element)
 
+    def _fail(
+        self,
+        error: str,
+        blocked: bool = False,
+        status_code: Optional[int] = None,
+    ) -> ScrapeResult:
+        return ScrapeResult(
+            success=False, error=error, blocked=blocked, status_code=status_code
+        )
+
     async def check_availability(self) -> ScrapeResult:
         """Check for available dates (and optionally times) on the reservation page."""
         host = urlsplit(self.url).netloc.lower()
