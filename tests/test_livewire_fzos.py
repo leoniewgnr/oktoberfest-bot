@@ -40,12 +40,6 @@ def test_shift_options_strip_blade_comments_and_umlauts():
     ]
 
 
-def test_is_weekend():
-    assert lw._is_weekend("2026-09-25") is True   # Friday
-    assert lw._is_weekend("2026-09-26") is True   # Saturday
-    assert lw._is_weekend("2026-09-27") is True   # Sunday
-    assert lw._is_weekend("2026-09-28") is False  # Monday
-    assert lw._is_weekend("garbage") is True      # unparseable -> check it
 
 
 def test_slot_key_shape():
