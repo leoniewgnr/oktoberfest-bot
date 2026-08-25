@@ -212,6 +212,15 @@ class LivewireFzosScraper(BaseScraper):
                     s["date_value"], {"date_text": s["date_text"], "times": []}
                 )["times"].append({"value": s["time_value"], "text": s["time_text"]})
 
+        # Mirror resolved shifts into available_times so the heartbeat digest
+        # shows "date – shift" for these tents, not date-only.
+        available_times: Dict[str, Dict[str, Any]] = {}
+        for s in slots:
+            if s["time_value"]:
+                available_times.setdefault(
+                    s["date_value"], {"date_text": s["date_text"], "times": []}
+                )["times"].append({"value": s["time_value"], "text": s["time_text"]})
+
         return ScrapeResult(
             success=True,
             dates_available=len(slots) > 0,
