@@ -24,7 +24,6 @@ import logging
 import re
 import threading
 import time
-from datetime import date as _date
 from typing import Any, Dict, List, Optional
 
 import requests
@@ -107,12 +106,6 @@ def _options(block: str) -> List[Dict[str, str]]:
     return out
 
 
-def _is_weekend(date_value: str) -> bool:
-    """date_value is YYYY-MM-DD. Fri/Sat/Sun (or unparseable → treat as worth checking)."""
-    try:
-        return _date.fromisoformat(date_value).weekday() >= 4
-    except ValueError:
-        return True
 
 
 class LivewireFzosScraper(BaseScraper):
@@ -182,19 +175,14 @@ class LivewireFzosScraper(BaseScraper):
         logger.info(f"Found {len(dates)} available date options")
 
         slots: List[Dict[str, Any]] = []
-        shift_lookups = 0
-        for d in dates:
+        for i, d in enumerate(dates):
             date_value = d["value"]
             date_text = d["text"]
-            # Only resolve the shift for the days she cares about (Fri/Sat/Sun).
-            # Weekday dates ride along date-only; the orchestrator won't alert them.
-            if not _is_weekend(date_value):
-                slots.append(self._slot(date_value, date_text, None, ""))
-                continue
-
-            if shift_lookups:
+            # Resolve the shift for EVERY date, so a weekday Abend is caught too
+            # (she wants every evening, any day). The filter alerts on Abend on any
+            # day and suppresses Mittag/Nachmittag/Frühschoppen.
+            if i:
                 time.sleep(_INTER_CALL_DELAY_S)
-            shift_lookups += 1
             try:
                 shifts = self._fetch_shifts(session, token, snapshot, date_value)
             except _Refused as e:
@@ -202,19 +190,18 @@ class LivewireFzosScraper(BaseScraper):
                 return self._fail(f"refused mid-scrape ({e})", blocked=True)
             except Exception as e:
                 logger.warning(f"{self.tent_name}: shift lookup for {date_value} failed - {e}")
-                # Fall back to date-only so a weekend date is never dropped.
+                # Fall back to date-only so the date is never dropped entirely.
                 slots.append(self._slot(date_value, date_text, None, ""))
                 continue
 
             if not shifts:
-                # Weekend date with no bookable shift → not a real opening; skip it
+                # No bookable shift on this date → not a real opening; skip it
                 # rather than firing a phantom alert.
                 continue
             for sh in shifts:
                 slots.append(self._slot(date_value, date_text, sh["value"], sh["text"]))
 
-        if shift_lookups:
-            logger.info(f"{self.tent_name}: resolved shifts for {shift_lookups} weekend date(s)")
+        logger.info(f"{self.tent_name}: resolved shifts for {len(dates)} date(s)")
 
         # Mirror resolved shifts into available_times so the heartbeat digest
         # shows "date – shift" for these tents, not date-only.
