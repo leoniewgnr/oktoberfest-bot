@@ -251,3 +251,34 @@ def test_unknown_shift_only_alerts_on_weekends():
     assert _alert_worthy("Montag, 21.09.2026", "Mittag") is False
     assert _alert_worthy("Samstag, 26.09.2026", "Mittag") is False  # weekend Mittag now suppressed
     assert _alert_worthy("Samstag, 26.09.2026", "Abend") is True    # weekend Abend is the goal
+
+
+def run_failing_cycle(monkeypatch, runtime, error="name resolution failed"):
+    result = ScrapeResult(success=False, error=error)
+    monkeypatch.setattr(main, "create_scraper", lambda cfg: FakeScraper(result))
+    asyncio.run(main.check_tent(runtime, TENT))
+
+
+def test_a_blip_neither_alerts_nor_announces_a_recovery(monkeypatch, rt):
+    """Two failed polls and back — the DNS flapping that spammed the channel."""
+    notifier = RecordingNotifier()
+    runtime = rt(notifier)
+
+    run_failing_cycle(monkeypatch, runtime)
+    run_failing_cycle(monkeypatch, runtime)
+    run_cycle(monkeypatch, runtime, [])
+
+    assert notifier.messages == []
+
+
+def test_a_persistent_failure_still_alerts_and_recovers(monkeypatch, rt):
+    notifier = RecordingNotifier()
+    runtime = rt(notifier)
+
+    for _ in range(main._ERROR_ALERT_AFTER_FAILURES):
+        run_failing_cycle(monkeypatch, runtime)
+    assert len(notifier.messages) == 1
+    assert "Monitor Error" in notifier.messages[0]
+
+    run_cycle(monkeypatch, runtime, [])
+    assert "Monitor Recovered" in notifier.messages[-1]
