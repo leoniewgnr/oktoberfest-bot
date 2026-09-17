@@ -42,6 +42,11 @@ _BLINDNESS_POLL_SECONDS = 60
 # floor still applies): a 30 min announcement page is not blind after 15 min.
 _BLIND_POLLS_MISSED = 3
 
+# A DNS hiccup or a Wi-Fi blip fails one poll and is gone by the next, so the
+# first misses stay quiet: alerting on them produced pure error/recovery
+# flapping. A target that really stopped reading still gets the blindness alarm.
+_ERROR_ALERT_AFTER_FAILURES = 3
+
 # Targets whose failure means we can no longer see booking supply. Announcement
 # pages are third-party marketing sites; one of them being permanently down must
 # not leave the external dead-man's switch stuck red and therefore useless.
@@ -258,6 +263,12 @@ def _send_slot_event(rt: Runtime, tent_config: Dict, event: SlotEvent) -> bool:
 
 
 
+def _error_alerted(state: StateManager, tent_id: str) -> bool:
+    """Whether the current failing spell ever reached Telegram. A spell we never
+    alerted on must not announce a recovery — that is half the flapping."""
+    return int(state.get_tent_state(tent_id).get('error_notify_count') or 0) > 0
+
+
 def _handle_slots(rt: Runtime, tent_config: Dict, result):
     tent_id = tent_config['id']
     tent_name = tent_config['name']
@@ -265,7 +276,7 @@ def _handle_slots(rt: Runtime, tent_config: Dict, result):
     state = rt.state
 
     was_available = state.is_dates_available(tent_id)
-    was_failing = state.get_consecutive_errors(tent_id) > 0
+    was_failing = _error_alerted(state, tent_id)
 
     current_slots = result.slots or result.build_slots()
     events = _slot_events(state.diff_slots(tent_id, current_slots))
@@ -334,7 +345,7 @@ def _handle_announcement(rt: Runtime, tent_config: Dict, result):
     tent_id = tent_config['id']
     tent_name = tent_config['name']
     state = rt.state
-    was_failing = state.get_consecutive_errors(tent_id) > 0
+    was_failing = _error_alerted(state, tent_id)
 
     text = getattr(result, 'text', '') or ''
     body_hash = getattr(result, 'body_hash', '') or ''
@@ -390,6 +401,12 @@ def _handle_failure(rt: Runtime, tent_config: Dict, message: str):
     that has been dead for a week from training her to mute the channel."""
     tent_id = tent_config['id']
     rt.state.mark_check_error(tent_id, message)
+    if rt.state.get_consecutive_errors(tent_id) < _ERROR_ALERT_AFTER_FAILURES:
+        rt.logger.info(
+            f"{tent_config['name']}: check failed "
+            f"{rt.state.get_consecutive_errors(tent_id)}x — not alerting yet"
+        )
+        return
     sent = int(rt.state.get_tent_state(tent_id).get('error_notify_count') or 0)
     interval = escalating_interval(
         float(rt.config['blind_realert_interval_seconds']), sent
