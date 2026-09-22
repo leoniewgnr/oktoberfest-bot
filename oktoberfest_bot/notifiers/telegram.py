@@ -7,6 +7,7 @@ from typing import Optional
 import requests
 
 from .base_notifier import BaseNotifier
+from .. import events
 
 logger = logging.getLogger(__name__)
 
@@ -34,6 +35,8 @@ class TelegramNotifier(BaseNotifier):
         if message_id is None and self._last_status == 400:
             logger.warning("Telegram rejected the HTML (400) — retrying as plain text")
             message_id = self._post(message, parse_mode=None)
+        if message_id is not None:
+            events.record("notified", text=message)
         return message_id
 
     def _post(self, message: str, parse_mode: Optional[str]) -> Optional[int]:

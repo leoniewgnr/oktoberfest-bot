@@ -19,7 +19,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, NamedTuple, Optional, Set
 
-from . import filters
+from . import events, filters
 from .config_loader import ConfigLoader
 from .health import BlindnessMonitor, HealthReporter, escalating_interval
 from .notifiers import TelegramNotifier
@@ -687,6 +687,7 @@ def main():
         setup_logging(config['log_file'])
         logger = logging.getLogger(__name__)
 
+        events.configure(config['state_file'])
         state_manager = StateManager(config['state_file'])
 
         notifier = TelegramNotifier(config['telegram_bot_token'], config['telegram_chat_id'])
