@@ -63,6 +63,14 @@
       "enabled": true
     },
     {
+      "id": "armbrustschuetzenzelt",
+      "name": "Armbrustschützenzelt",
+      "url": "https://reservierung.armbrustschuetzenzelt.de/reservierung",
+      "scraper_type": "livewire",
+      "check_interval": 300,
+      "enabled": true
+    },
+    {
       "id": "schottenhamel-muenchner-spezial",
       "name": "Schottenhamel Münchner Spezial (Ankündigung)",
       "url": "https://festhalle-schottenhamel.de/reservierung/muenchner-spezial/",

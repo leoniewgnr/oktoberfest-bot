@@ -8,6 +8,8 @@ from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 
+from . import events
+
 SEEN_SLOT_RETENTION = timedelta(days=60)
 ERROR_MESSAGE_MAX_LEN = 300
 
@@ -35,6 +37,15 @@ def _slot_key(slot: Dict[str, Any]) -> str:
 
 def _slot_areas(slot: Dict[str, Any]) -> List[str]:
     return sorted({str(a).strip() for a in (slot.get('areas') or []) if str(a).strip()})
+
+
+def _event_fields(slot: Dict[str, Any]) -> Dict[str, Any]:
+    return {
+        "date": slot.get('date_text') or '',
+        "shift": slot.get('time_text') or '',
+        "state": slot.get('state'),
+        "areas": _slot_areas(slot),
+    }
 
 
 class StateManager:
@@ -321,6 +332,7 @@ class StateManager:
                     continue
                 entry = seen.get(key)
                 if not isinstance(entry, dict):
+                    events.record("appeared", tent=tent_id, **_event_fields(slot))
                     seen[key] = {
                         "first_seen": now_iso,
                         "last_seen": now_iso,
@@ -331,6 +343,8 @@ class StateManager:
                         "areas": _slot_areas(slot),
                     }
                 else:
+                    if entry.get('gone_since'):
+                        events.record("returned", tent=tent_id, **_event_fields(slot))
                     entry['last_seen'] = now_iso
                     entry['date_text'] = slot.get('date_text') or entry.get('date_text') or ''
                     entry['time_text'] = slot.get('time_text') or entry.get('time_text') or ''
@@ -343,6 +357,7 @@ class StateManager:
                     continue
                 if key not in current_keys and not entry.get('gone_since'):
                     entry['gone_since'] = now_iso
+                    events.record("disappeared", tent=tent_id, **_event_fields(entry))
 
             cutoff = now - SEEN_SLOT_RETENTION
             for key in list(seen):
